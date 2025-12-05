@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from "motion/react";
 import { Mail, FileText, Settings, Download, Sheet, Bell } from "lucide-react";
-import { RefObject, useState, useEffect } from "react";
+import { RefObject, useState, useEffect, useMemo } from "react";
 
 const icons = [
   { Icon: Mail, color: "#A370FF" },
@@ -16,17 +16,39 @@ interface ScrollAnimatedIconsProps {
   servicesSectionRef: RefObject<HTMLDivElement>;
 }
 
+// Pre-compute constants outside component for performance
+const DEG_TO_RAD = Math.PI / 180;
+const ROTATIONS = 3; // Reduced from 4 for smoother performance
+
 export function ScrollAnimatedIcons({ containerRef, servicesSectionRef }: ScrollAnimatedIconsProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
+  // Memoize dimensions check
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+    const updateDimensions = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
     };
     
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    updateDimensions();
+    
+    // Debounced resize handler
+    let timeoutId: NodeJS.Timeout;
+    const handleResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(updateDimensions, 100);
+    };
+    
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const { scrollYProgress } = useScroll({
@@ -34,169 +56,86 @@ export function ScrollAnimatedIcons({ containerRef, servicesSectionRef }: Scroll
     offset: ["start start", "end end"]
   });
 
+  // Pre-compute static values
+  const computedValues = useMemo(() => {
+    const totalIcons = isMobile ? 3 : icons.length;
+    const centerX = dimensions.width / 2 - 36;
+    const radius = Math.min(dimensions.width * 0.25, 350);
+    const startY = 0;
+    const totalVerticalTravel = dimensions.height * 1.5;
+    const helixPitch = totalVerticalTravel / (ROTATIONS * 360);
+
+    return icons.map((_, index) => ({
+      baseAngle: index * (360 / totalIcons),
+      shouldHide: isMobile && index >= 3,
+      centerX,
+      radius,
+      startY,
+      totalVerticalTravel,
+      helixPitch,
+      waveAmplitude: dimensions.width * 0.2,
+      phaseOffset: (index * Math.PI * 2 / totalIcons),
+    }));
+  }, [isMobile, dimensions]);
+
+  // Don't render until dimensions are set
+  if (dimensions.width === 0) return null;
+
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 1 }}>
+    <div 
+      className="fixed inset-0 pointer-events-none overflow-hidden" 
+      style={{ zIndex: 1, willChange: 'auto' }}
+    >
       {icons.map((item, index) => {
         const { Icon, color } = item;
+        const config = computedValues[index];
+        
+        if (config.shouldHide) return null;
 
-        // Hide icons 3-5 on mobile (only show first 3)
-        const shouldHide = isMobile && index >= 3;
+        // Simplified opacity - just fade in at start
+        const opacity = useTransform(scrollYProgress, [0, 0.1], [0, 0.8]);
 
-        // Each icon has an offset angle for spiral effect
-        // Use total icon count for proper spacing
-        const totalIcons = isMobile ? 3 : icons.length;
-        const baseAngle = index * (360 / totalIcons);
-
-        // Fade in at the start
-        const opacity = useTransform(scrollYProgress, [0, 0.1, 0.9, 1], [0, 1, 1, 0]);
-
-        // CIRCULAR SPIRAL - X position
+        // Optimized X position
         const x = useTransform(scrollYProgress, (progress) => {
-          const centerX = window.innerWidth / 2 - 36;
-          const radius = Math.min(window.innerWidth * 0.25, 350);
-          
           if (isMobile) {
-            // MOBILE: Enhanced figure-8 pattern with easing
-            const waveAmplitude = window.innerWidth * 0.2; // Slightly larger radius
-            const waveFrequency = 2.5; // Smooth flowing waves
-            const phaseOffset = (index * Math.PI * 2 / totalIcons);
-            
-            // Add some easing for more organic movement
-            const easedProgress = progress < 0.5 
-              ? 2 * progress * progress 
-              : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-            
-            return centerX + Math.sin(easedProgress * Math.PI * 2 * waveFrequency + phaseOffset) * waveAmplitude;
+            // Simplified mobile wave
+            const easedProgress = progress * progress * (3 - 2 * progress); // Smoothstep
+            return config.centerX + Math.sin(easedProgress * Math.PI * 5 + config.phaseOffset) * config.waveAmplitude;
           }
           
-          // DESKTOP: Complex helix pattern
-          const rotations = 4; // Number of full rotations as you scroll down
-          const currentAngle = baseAngle + (progress * 360 * rotations);
-          const angleRad = (currentAngle * Math.PI) / 180;
-          
-          // X follows circular path (horizontal circle)
-          return centerX + Math.cos(angleRad) * radius;
+          // Desktop helix
+          const angle = (config.baseAngle + progress * 360 * ROTATIONS) * DEG_TO_RAD;
+          return config.centerX + Math.cos(angle) * config.radius;
         });
 
-        // DNA HELIX - Y position (vertical descent with elliptical motion)
+        // Optimized Y position
         const y = useTransform(scrollYProgress, (progress) => {
-          const startY = window.innerHeight * 0; // Start at very top of viewport
-          const totalVerticalTravel = window.innerHeight * 1.5; // Total distance to travel
-          
           if (isMobile) {
-            // MOBILE: Add gentle vertical wave for floating effect
-            const verticalWaveAmplitude = 30; // Subtle bounce
-            const verticalWaveFrequency = 3;
-            const phaseOffset = (index * Math.PI * 0.5); // Different phase per icon
-            
-            const baseY = startY + (progress * totalVerticalTravel);
-            const wave = Math.sin(progress * Math.PI * 2 * verticalWaveFrequency + phaseOffset) * verticalWaveAmplitude;
-            
+            const baseY = config.startY + progress * config.totalVerticalTravel;
+            const wave = Math.sin(progress * Math.PI * 6 + config.phaseOffset) * 25;
             return baseY + wave;
           }
           
-          // DESKTOP: Complex helix with pitch
-          const rotations = 4; // Match the X rotation speed
-          const currentAngle = baseAngle + (progress * 360 * rotations);
-          
-          // HELIX = Circular motion (X) + Linear forward motion (Y)
-          // The Y position increases continuously based on the angle
-          // This creates the spiral staircase effect
-          const helixPitch = totalVerticalTravel / (rotations * 360); // Vertical distance per degree
-          const verticalPosition = startY + (currentAngle * helixPitch);
-          
-          // Continuous linear descent tied to rotation angle - TRUE HELIX!
-          return verticalPosition;
+          // Desktop helix descent
+          const currentAngle = config.baseAngle + progress * 360 * ROTATIONS;
+          return config.startY + currentAngle * config.helixPitch;
         });
 
-        // 3D DEPTH - Scale based on Z-depth in helix
+        // Simplified scale - no expensive depth calculations
         const scale = useTransform(scrollYProgress, (progress) => {
           if (isMobile) {
-            // MOBILE: Add subtle breathing/pulsing effect
-            const pulseFrequency = 2 + (index * 0.3); // Each icon pulses at slightly different rate
-            const pulseAmount = 0.12; // Subtle scale change
-            
-            const pulse = Math.sin(progress * Math.PI * 2 * pulseFrequency) * pulseAmount;
-            return 0.95 + pulse; // Range: 0.83 to 1.07
+            const pulse = Math.sin(progress * Math.PI * 4) * 0.1;
+            return 0.9 + pulse;
           }
           
-          // DESKTOP: Dynamic scale based on helix depth
-          const rotations = 4; // Match the rotation speed
-          const currentAngle = baseAngle + (progress * 360 * rotations);
-          const angleRad = (currentAngle * Math.PI) / 180;
-          
-          // Z-depth simulation: sin gives us the front/back position
-          // When sin(angle) = 0, icon is at center depth
-          // When sin(angle) = 1, icon is closest to viewer (front)
-          // When sin(angle) = -1, icon is farthest from viewer (back)
-          const depth = Math.sin(angleRad);
-          
-          // Larger when close, smaller when far
-          return 0.6 + (depth + 1) * 0.3; // Range: 0.6 to 1.2
+          // Desktop: simple depth from rotation
+          const angle = (config.baseAngle + progress * 360 * ROTATIONS) * DEG_TO_RAD;
+          const depth = Math.sin(angle);
+          return 0.65 + (depth + 1) * 0.25;
         });
 
-        // 3D DEPTH - Opacity based on depth (dimmer when farther away)
-        const depthOpacity = useTransform(scrollYProgress, (progress) => {
-          if (isMobile) {
-            // MOBILE: Add gentle opacity pulse for shimmer effect
-            const pulseFrequency = 1.5 + (index * 0.2);
-            const pulseAmount = 0.15; // Subtle opacity change
-            
-            const pulse = Math.sin(progress * Math.PI * 2 * pulseFrequency) * pulseAmount;
-            return 0.75 + pulse; // Range: 0.6 to 0.9
-          }
-          
-          // DESKTOP: Dynamic opacity based on depth
-          const rotations = 4; // Match the rotation speed
-          const currentAngle = baseAngle + (progress * 360 * rotations);
-          const angleRad = (currentAngle * Math.PI) / 180;
-          
-          const depth = Math.sin(angleRad);
-          
-          // Icons in front are brighter, icons in back are dimmer
-          return 0.3 + (depth + 1) * 0.35; // Range: 0.3 to 1.0
-        });
-
-        // Combine with fade in/out opacity
-        const combinedOpacity = useTransform(
-          [scrollYProgress, depthOpacity],
-          ([progress, depth]) => {
-            // Hide this icon completely on mobile if index >= 3
-            if (shouldHide) {
-              return 0;
-            }
-            
-            // Fade in at start only, no fade out
-            let fadeOpacity = 1;
-            if (progress < 0.1) {
-              fadeOpacity = progress / 0.1;
-            }
-            return fadeOpacity * depth;
-          }
-        );
-
-        // 3D DEPTH - Subtle blur for distance
-        const blur = useTransform(scrollYProgress, (progress) => {
-          if (isMobile) {
-            // MOBILE: No blur effect
-            return 0;
-          }
-          
-          // DESKTOP: Dynamic blur based on depth
-          const rotations = 4; // Match the rotation speed
-          const currentAngle = baseAngle + (progress * 360 * rotations);
-          const angleRad = (currentAngle * Math.PI) / 180;
-          
-          const depth = Math.sin(angleRad);
-          
-          // More blur when farther away (negative depth)
-          const blurAmount = depth < 0 ? Math.abs(depth) * 2 : 0;
-          
-          return blurAmount;
-        });
-
-        // Icon rotation for added effect
-        const rotate = useTransform(scrollYProgress, [0, 1], isMobile ? [0, 360] : [0, 720]);
+        // Simple rotation
+        const rotate = useTransform(scrollYProgress, [0, 1], isMobile ? [0, 360] : [0, 540]);
 
         return (
           <motion.div
@@ -206,27 +145,29 @@ export function ScrollAnimatedIcons({ containerRef, servicesSectionRef }: Scroll
               y,
               scale,
               rotate,
-              opacity: combinedOpacity,
-              filter: useTransform(blur, (b) => `blur(${b}px)`),
+              opacity,
               position: "absolute",
+              willChange: "transform, opacity",
+              // Use transform3d for GPU acceleration
+              transform: "translateZ(0)",
             }}
             className="relative"
           >
-            {/* Glow effect */}
+            {/* Simplified glow - static, not animated */}
             <div
-              className="absolute inset-0 blur-xl"
+              className="absolute inset-0 blur-lg"
               style={{
                 backgroundColor: color,
-                opacity: 0.6,
+                opacity: 0.4,
               }}
             />
             
             {/* Icon */}
             <Icon
-              size={72}
+              size={isMobile ? 56 : 72}
               color={color}
               strokeWidth={1.5}
-              className="relative drop-shadow-2xl"
+              className="relative drop-shadow-lg"
             />
           </motion.div>
         );

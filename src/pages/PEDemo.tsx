@@ -1,10 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Upload, FileText, TrendingUp, DollarSign, PieChart, ArrowLeft, Download } from "lucide-react";
+import { Upload, FileText, TrendingUp, DollarSign, PieChart, ArrowLeft, Download, Loader2, CheckCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import ExcelJS from 'exceljs';
+
+type ProcessingStage = 'uploading' | 'parsing' | 'analyzing' | 'calculating';
+
+const PROCESSING_STAGES: { stage: ProcessingStage; label: string; icon: string; duration: number }[] = [
+  { stage: 'uploading', label: 'Uploading 10-K filing...', icon: '📤', duration: 800 },
+  { stage: 'parsing', label: 'Parsing PDF document...', icon: '📖', duration: 3000 },
+  { stage: 'analyzing', label: 'AI extracting financial data...', icon: '🤖', duration: 8000 },
+  { stage: 'calculating', label: 'Computing metrics & ratios...', icon: '📊', duration: 2000 },
+];
 
 interface FinancialData {
   company_name: string;
@@ -60,6 +69,7 @@ export function PEDemo() {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [currentStage, setCurrentStage] = useState<ProcessingStage>('uploading');
   const [financialData, setFinancialData] = useState<FinancialData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -83,6 +93,31 @@ export function PEDemo() {
       // DO NOT reset state here - component is unmounting
     };
   }, []);
+
+  // Cycle through processing stages
+  useEffect(() => {
+    if (!isProcessing) {
+      setCurrentStage('uploading');
+      return;
+    }
+
+    let totalTime = 0;
+    const timeouts: NodeJS.Timeout[] = [];
+
+    PROCESSING_STAGES.forEach((stage, index) => {
+      if (index > 0) {
+        const timeout = setTimeout(() => {
+          setCurrentStage(stage.stage);
+        }, totalTime);
+        timeouts.push(timeout);
+      }
+      totalTime += stage.duration;
+    });
+
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+    };
+  }, [isProcessing]);
   
   // Cost calculations
   const avgAnalystSalary = 150000; // Average PE analyst/associate base salary
