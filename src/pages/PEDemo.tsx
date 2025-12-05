@@ -805,14 +805,72 @@ export function PEDemo() {
 
                   {isProcessing && (
                     <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mt-8 flex flex-col items-center gap-4"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-8 w-full max-w-lg mx-auto"
                     >
-                      <div className="w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-                      <p className="text-purple-300" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                        Processing 10-K filing...
-                      </p>
+                      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                        <div className="text-center mb-6">
+                          <div className="w-16 h-16 mx-auto bg-purple-500/20 rounded-full flex items-center justify-center mb-3">
+                            <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                          </div>
+                          <h3 className="text-xl text-white mb-1">Analyzing 10-K Filing</h3>
+                          <p className="text-purple-200 text-sm">AI is extracting financial data</p>
+                        </div>
+
+                        <div className="space-y-3">
+                          {PROCESSING_STAGES.map((stage, index) => {
+                            const currentIndex = PROCESSING_STAGES.findIndex(s => s.stage === currentStage);
+                            const isComplete = index < currentIndex;
+                            const isCurrent = index === currentIndex;
+
+                            return (
+                              <motion.div
+                                key={stage.stage}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                                className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 ${
+                                  isComplete
+                                    ? 'bg-green-500/10 border-green-500/30'
+                                    : isCurrent
+                                    ? 'bg-purple-500/20 border-purple-500/50'
+                                    : 'bg-white/5 border-white/10 opacity-50'
+                                }`}
+                              >
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                                  isComplete
+                                    ? 'bg-green-500/20'
+                                    : isCurrent
+                                    ? 'bg-purple-500/30 animate-pulse'
+                                    : 'bg-white/10'
+                                }`}>
+                                  {isComplete ? (
+                                    <CheckCircle className="w-5 h-5 text-green-400" />
+                                  ) : (
+                                    <span>{stage.icon}</span>
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <div className={`text-sm font-medium ${
+                                    isComplete ? 'text-green-400' : isCurrent ? 'text-white' : 'text-white/50'
+                                  }`}>
+                                    {stage.label}
+                                  </div>
+                                  {isCurrent && (
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: '100%' }}
+                                      transition={{ duration: stage.duration / 1000, ease: 'linear' }}
+                                      className="h-1 bg-purple-500 rounded-full mt-2"
+                                    />
+                                  )}
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </motion.div>
                   )}
 

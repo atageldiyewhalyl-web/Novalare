@@ -4,9 +4,18 @@ import { useState, useRef, useEffect } from "react";
 import { Upload, FileText, Loader2, ArrowLeft, CheckCircle, AlertCircle, Download, XCircle, Receipt, TrendingUp, Wallet } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { motion, AnimatePresence } from "motion/react";
+
+type ProcessingStage = 'uploading' | 'parsing' | 'extracting' | 'matching';
+
+const PROCESSING_STAGES: { stage: ProcessingStage; label: string; icon: string; duration: number }[] = [
+  { stage: 'uploading', label: 'Uploading files...', icon: '📤', duration: 800 },
+  { stage: 'parsing', label: 'Parsing transactions...', icon: '📖', duration: 2000 },
+  { stage: 'extracting', label: 'AI extracting receipt data...', icon: '🧾', duration: 4000 },
+  { stage: 'matching', label: 'Matching expenses to receipts...', icon: '🔗', duration: 2000 },
+];
 
 interface Transaction {
   date: string;
@@ -70,6 +79,7 @@ export function ExpenseDemo() {
   const [transactionsFile, setTransactionsFile] = useState<File | null>(null);
   const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [currentStage, setCurrentStage] = useState<ProcessingStage>('uploading');
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExpenseResult | null>(null);
   const transactionsInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +99,31 @@ export function ExpenseDemo() {
       // DO NOT reset state here - component is unmounting
     };
   }, []);
+
+  // Cycle through processing stages
+  useEffect(() => {
+    if (!isProcessing) {
+      setCurrentStage('uploading');
+      return;
+    }
+
+    let totalTime = 0;
+    const timeouts: NodeJS.Timeout[] = [];
+
+    PROCESSING_STAGES.forEach((stage, index) => {
+      if (index > 0) {
+        const timeout = setTimeout(() => {
+          setCurrentStage(stage.stage);
+        }, totalTime);
+        timeouts.push(timeout);
+      }
+      totalTime += stage.duration;
+    });
+
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+    };
+  }, [isProcessing]);
 
   const handleTransactionsSelect = (file: File) => {
     // Validate file type
@@ -472,6 +507,78 @@ export function ExpenseDemo() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Processing State with Animated Stages */}
+            {isProcessing && !result && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl mx-auto"
+              >
+                <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-8">
+                  <div className="text-center mb-8">
+                    <div className="w-20 h-20 mx-auto bg-purple-500/20 rounded-full flex items-center justify-center mb-4">
+                      <Loader2 className="w-10 h-10 text-purple-400 animate-spin" />
+                    </div>
+                    <h3 className="text-2xl text-white mb-2">Processing Expenses</h3>
+                    <p className="text-purple-200">AI is matching receipts to transactions</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {PROCESSING_STAGES.map((stage, index) => {
+                      const currentIndex = PROCESSING_STAGES.findIndex(s => s.stage === currentStage);
+                      const isComplete = index < currentIndex;
+                      const isCurrent = index === currentIndex;
+
+                      return (
+                        <motion.div
+                          key={stage.stage}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.1 }}
+                          className={`flex items-center gap-4 p-4 rounded-xl border transition-all duration-300 ${
+                            isComplete
+                              ? 'bg-green-500/10 border-green-500/30'
+                              : isCurrent
+                              ? 'bg-purple-500/20 border-purple-500/50'
+                              : 'bg-white/5 border-white/10 opacity-50'
+                          }`}
+                        >
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${
+                            isComplete
+                              ? 'bg-green-500/20'
+                              : isCurrent
+                              ? 'bg-purple-500/30 animate-pulse'
+                              : 'bg-white/10'
+                          }`}>
+                            {isComplete ? (
+                              <CheckCircle className="w-6 h-6 text-green-400" />
+                            ) : (
+                              <span>{stage.icon}</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className={`font-medium ${
+                              isComplete ? 'text-green-400' : isCurrent ? 'text-white' : 'text-white/50'
+                            }`}>
+                              {stage.label}
+                            </div>
+                            {isCurrent && (
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: '100%' }}
+                                transition={{ duration: stage.duration / 1000, ease: 'linear' }}
+                                className="h-1 bg-purple-500 rounded-full mt-2"
+                              />
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
             {/* Results Section */}
             {result && (
