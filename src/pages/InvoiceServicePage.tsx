@@ -167,6 +167,7 @@ export function InvoiceServicePage() {
       
       setError(errorMessage);
       setIsProcessing(false);
+      
       toast.error(errorMessage);
       console.error('❌ Upload error:', err);
       

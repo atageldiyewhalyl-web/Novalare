@@ -139,6 +139,7 @@ export function PEDemo() {
 
       if (!isMountedRef.current) return;
       setFinancialData(data);
+      
     } catch (err: any) {
       // Ignore abort errors (they're intentional when navigating away)
       if (err.name === 'AbortError') {
@@ -149,7 +150,9 @@ export function PEDemo() {
       if (!isMountedRef.current) return;
       
       console.error('❌ Processing error:', err);
-      setError(err.message || 'Failed to process 10-K filing. Please try again.');
+      const errorMessage = err.message || 'Failed to process 10-K filing. Please try again.';
+      setError(errorMessage);
+      
     } finally {
       if (isMountedRef.current) {
         setIsProcessing(false);

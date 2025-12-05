@@ -193,6 +193,7 @@ export function ExpenseDemo() {
       const data = await response.json();
       if (!isMountedRef.current) return;
       setResult(data);
+      
       toast.success('Expense reconciliation completed!');
     } catch (err: any) {
       // Ignore abort errors (they're intentional when navigating away)
@@ -207,6 +208,7 @@ export function ExpenseDemo() {
       setError(errorMessage);
       toast.error(errorMessage);
       console.error('Reconciliation error:', err);
+      
     } finally {
       if (isMountedRef.current) {
         setIsProcessing(false);
