@@ -1,0 +1,177 @@
+  {
+    slug: "pdf-vs-image-invoice-extraction",
+    title: "PDF vs Image Invoice Extraction: Which Format Works Best?",
+    excerpt: "Understand the differences between PDF and image invoice extraction. Learn which format delivers better accuracy and how to handle both effectively.",
+    content: `
+Invoices arrive in multiple formats—some as searchable PDFs, others as scanned images or photos. Understanding the differences between PDF and image invoice extraction is crucial for optimizing your accounts payable automation workflow.
+
+This guide explains the technical differences, accuracy implications, and best practices for handling both PDF and image invoices.
+
+## Understanding Invoice File Formats
+
+### Searchable PDFs (Native PDFs)
+
+Created directly from accounting software or word processors:
+- **Examples**: Invoices exported from QuickBooks, Xero, or generated from templates
+- **Characteristics**: Text is selectable, can be copied and pasted
+- **File size**: Typically smaller (50-200 KB)
+- **Content structure**: Text, fonts, and layouts stored as structured data
+
+### Scanned PDFs (Image-Based PDFs)
+
+Created by scanning paper invoices:
+- **Examples**: Paper invoices scanned with a document scanner
+- **Characteristics**: Looks like a PDF but contains images, not text
+- **File size**: Larger (500 KB - 5 MB)
+- **Content structure**: Images embedded in PDF wrapper
+
+### Image Files
+
+Direct image captures:
+- **Formats**: PNG, JPG, JPEG, TIFF, HEIC
+- **Sources**: Mobile phone photos, screenshots, email attachments
+- **File size**: Varies widely (100 KB - 10 MB)
+- **Quality**: Highly variable depending on capture method
+
+## Extraction Accuracy: PDF vs Image
+
+### Searchable PDFs: Highest Accuracy
+
+**Accuracy Rate**: 99.5-99.9%
+
+**Why PDFs Excel**:
+- Text is already digitized—no OCR required
+- Perfect character recognition
+- Preserves exact formatting and layout
+- Font information aids extraction
+- Mathematical precision (amounts, calculations)
+
+**Extraction Process**:
+1. Parse PDF structure
+2. Extract text directly
+3. Identify layout and regions
+4. Apply machine learning for field recognition
+5. Validate extracted data
+
+**Processing Time**: <2 seconds per invoice
+
+**Best Use Cases**:
+- Invoices from major vendors
+- Electronically generated invoices
+- High-volume automated processing
+
+### Scanned PDFs: High Accuracy with OCR
+
+**Accuracy Rate**: 98-99%
+
+**Why Scanned PDFs Need OCR**:
+- Contains images, not searchable text
+- Requires optical character recognition
+- Quality dependent on scan resolution
+- Subject to scanning artifacts (skew, shadows)
+
+**Extraction Process**:
+1. Extract images from PDF wrapper
+2. Preprocess images (deskew, enhance contrast)
+3. Apply OCR to convert images to text
+4. Use AI to understand layout and context
+5. Validate extracted data
+
+**Processing Time**: 3-5 seconds per invoice
+
+**Challenges**:
+- Low scan resolution (<200 DPI)
+- Skewed or rotated scans
+- Poor contrast
+- Faded or degraded originals
+
+**Best Practices**:
+- Scan at 300 DPI minimum
+- Use automatic document feeders for alignment
+- Enable automatic deskew features
+- Clean scanner glass regularly
+
+### Image Files: Good Accuracy with Advanced AI
+
+**Accuracy Rate**: 95-98%
+
+**Why Images Are More Challenging**:
+- Wide quality variation
+- Photos often have perspective distortion
+- Variable lighting conditions
+- Background clutter and noise
+- Compression artifacts (especially JPG)
+
+**Extraction Process**:
+1. Image quality assessment
+2. Advanced preprocessing (super-resolution, perspective correction)
+3. AI-powered OCR with context understanding
+4. Layout analysis with visual cues
+5. Validation and confidence scoring
+
+**Processing Time**: 4-7 seconds per invoice
+
+**Common Issues**:
+- Poor lighting (shadows, glare)
+- Camera shake (blur)
+- Perspective distortion (photo at angle)
+- Low resolution from phone cameras
+- Wrinkled or folded documents
+
+**Best Practices for Mobile Capture**:
+- Use good lighting (natural light works best)
+- Hold phone directly above document
+- Ensure entire invoice is in frame
+- Avoid shadows across the document
+- Use document scanning apps (they auto-enhance)
+
+## Performance Comparison
+
+### Accuracy by Format
+
+| Format | Vendor Name | Invoice # | Date | Amount | Line Items |
+|--------|-------------|-----------|------|---------|------------|
+| **Searchable PDF** | 99.9% | 99.9% | 99.8% | 99.9% | 99.5% |
+| **Scanned PDF** | 99.2% | 98.8% | 99.0% | 99.5% | 97.8% |
+| **High-Quality Image** | 98.5% | 97.9% | 98.2% | 99.0% | 96.5% |
+| **Phone Photo** | 96.8% | 95.5% | 96.8% | 98.2% | 93.5% |
+
+### Processing Speed
+
+- **Searchable PDF**: 1-2 seconds
+- **Scanned PDF (300 DPI)**: 3-5 seconds
+- **High-res image**: 4-7 seconds
+- **Phone photo**: 5-8 seconds
+
+### Straight-Through Processing Rates
+
+- **Searchable PDF**: 95-98% (no human review needed)
+- **Scanned PDF**: 85-92%
+- **High-Quality Image**: 75-85%
+- **Phone Photo**: 60-75%
+
+## Conclusion
+
+**Best Format**: Searchable PDF (99%+ accuracy, fastest processing)
+**Most Common**: Mixed formats (PDFs, scans, photos)
+**Best Strategy**: AI that handles all formats effectively
+
+Modern AI invoice extraction systems achieve excellent results across all formats:
+- **Searchable PDFs**: 99.5%+ accuracy
+- **Scanned PDFs**: 98-99% accuracy
+- **Image files**: 95-98% accuracy
+
+**Ready to process invoices in any format?** Try Novalare's AI extraction on your first 50 invoices—upload PDFs, scans, or photos and see the results.
+    `,
+    author: {
+      name: "Alex Rivera",
+      role: "Solutions Engineer",
+      avatar: "https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=150&h=150&fit=crop"
+    },
+    publishedAt: "2024-11-29",
+    readTime: "14 min read",
+    category: "Tutorial",
+    tags: ["Invoice Extraction", "PDF", "OCR", "Image Processing"],
+    coverImage: "https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=1200&h=600&fit=crop",
+    featured: false
+  },

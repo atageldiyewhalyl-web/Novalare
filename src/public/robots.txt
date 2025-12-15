@@ -1,0 +1,29 @@
+# Robots.txt for Novalare
+# Allow search engines to index public marketing pages
+# Block search engines from indexing authenticated dashboard
+
+User-agent: *
+
+# Allow public pages
+Allow: /
+Allow: /features
+Allow: /pricing
+Allow: /blog
+Allow: /blog/*
+Allow: /login
+Allow: /signup
+Allow: /invoice-demo
+Allow: /bank-demo
+Allow: /ap-demo
+Allow: /pe-demo
+Allow: /expense-demo
+
+# Block authenticated dashboard and user data
+Disallow: /dashboard
+Disallow: /dashboard/*
+Disallow: /dev-portal
+Disallow: /dev-portal/*
+Disallow: /init-setup
+
+# Sitemap location
+Sitemap: https://www.novalare.com/sitemap.xml

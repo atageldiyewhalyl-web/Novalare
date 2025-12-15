@@ -1,0 +1,15 @@
+The Credit Card Reconciliation matching has been successfully upgraded to use server-side AI matching with a 5-stage funnel. 
+
+Due to file complexity, the final UI enhancements (match type column and confidence column in the table) need to be added manually.
+
+Please add these two table header columns after "Card":
+- <th className="text-left py-3 px-6 text-xs text-gray-500 font-medium">Match Type</th>
+- <th className="text-left py-3 px-6 text-xs text-gray-500 font-medium">Confidence</th>
+
+And add these two table data cells before the expand/collapse column:
+- Match type badge (showing Exact, 1:Many, Many:1, FX, or AI Fuzzy)
+- Confidence percentage
+
+Also update colSpan={5} to colSpan={7} in the expanded row.
+
+The match type breakdown card has been successfully added.

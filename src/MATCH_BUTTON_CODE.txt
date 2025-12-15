@@ -1,0 +1,50 @@
+ADD THIS BUTTON BETWEEN "Approve for JE" AND "Edit / Correct" BUTTONS:
+(Around line 815 in CCRecReview.tsx)
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 bg-white"
+                          onClick={() => handleOpenMatchDialog(item)}
+                        >
+                          <Link className="size-3.5" />
+                          Match
+                        </Button>
+
+EXACT LOCATION:
+Find this code block around line 807-824:
+
+                        <Button
+                          size="sm"
+                          className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => handleApproveForJE(item, 'cc')}
+                        >
+                          <ThumbsUp className="size-3.5" />
+                          Approve for JE
+                        </Button>
+                        <Button                           <---- ADD THE MATCH BUTTON HERE
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 bg-white"
+                          onClick={() => handleEditTransaction(item, 'cc')}
+                        >
+                          <Edit2 className="size-3.5" />
+                          Edit / Correct
+                        </Button>
+
+ALSO ADD THE SAME MATCH BUTTON FOR LEDGER ENTRIES:
+(Around line 900-920 in CCRecReview.tsx)
+
+Look for the similar button structure for ledger entries and add:
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 bg-white"
+                          onClick={() => handleOpenMatchDialog(item)}
+                        >
+                          <Link className="size-3.5" />
+                          Match
+                        </Button>
+
+Note: The handleOpenMatchDialog function is already implemented and ready to use!

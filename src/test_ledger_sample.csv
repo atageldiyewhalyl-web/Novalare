@@ -1,0 +1,7 @@
+Date,Description,Amount,Account
+2024-01-15,Customer Payment - Invoice 1001,5000.00,1200
+2024-01-16,Supplier Payment - ABC Corp,-2500.50,2000
+2024-01-20,Salary Payment - Part 1,-7500.00,5400
+2024-01-20,Salary Payment - Part 2,-7500.00,5400
+2024-01-22,Client Deposit - Project A,8500.00,1200
+2024-01-25,Office Rent Payment,-3000.00,6300
