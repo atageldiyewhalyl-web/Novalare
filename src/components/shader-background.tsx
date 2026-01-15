@@ -14,10 +14,13 @@ export const ShaderBackground = () => {
       return;
     }
 
-    // Resize canvas to fill window
+    // Resize canvas to fill window (at lower resolution for performance)
     const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      // Use 0.5 density - visually identical for blurs, but 75% less GPU load
+      // Prevents Safari/Mac thermal throttling over time
+      const density = 0.5;
+      canvas.width = window.innerWidth * density;
+      canvas.height = window.innerHeight * density;
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
 
