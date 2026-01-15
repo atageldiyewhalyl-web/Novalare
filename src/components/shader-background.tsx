@@ -108,6 +108,7 @@ export const ShaderBackground = () => {
 
     // Animation loop
     let startTime = Date.now();
+    let animationFrameId: number;
 
     const render = () => {
       // Set time uniform
@@ -121,7 +122,7 @@ export const ShaderBackground = () => {
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
       // Request next frame
-      requestAnimationFrame(render);
+      animationFrameId = requestAnimationFrame(render);
     };
 
     render();
@@ -129,6 +130,7 @@ export const ShaderBackground = () => {
     // Cleanup
     return () => {
       window.removeEventListener("resize", resizeCanvas);
+      cancelAnimationFrame(animationFrameId);
       gl.deleteProgram(shaderProgram!);
       gl.deleteShader(vertexShader!);
       gl.deleteShader(fragmentShader!);
