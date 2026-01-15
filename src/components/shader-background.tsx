@@ -2,28 +2,28 @@ import { useEffect, useRef } from "react";
 
 export const ShaderBackground = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   useEffect(() => {
     if (!canvasRef.current) return;
-    
+
     const canvas = canvasRef.current;
     const gl = canvas.getContext("webgl");
-    
+
     if (!gl) {
       console.error("WebGL not supported");
       return;
     }
-    
+
     // Resize canvas to fill window
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
-    
+
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
-    
+
     // Create vertex shader
     const vertexShaderSource = `
       attribute vec4 aVertexPosition;
@@ -31,7 +31,7 @@ export const ShaderBackground = () => {
         gl_Position = aVertexPosition;
       }
     `;
-    
+
     // Create fragment shader with the provided code
     const fragmentShaderSource = `
       precision highp float;
@@ -56,7 +56,7 @@ export const ShaderBackground = () => {
       void main() {
         vec2 p = (2.0*gl_FragCoord.xy - iResolution.xy) / min(iResolution.x, iResolution.y);
         p *= 2.0;
-        for(int i=0;i<8;i++) {
+        for(int i=0;i<4;i++) {
           vec2 newp = vec2(
             p.y + cos(p.x + iTime) - sin(p.y * cos(iTime * 0.2)),
             p.x - sin(p.y - iTime) - cos(p.x * sin(iTime * 0.3))
@@ -66,66 +66,66 @@ export const ShaderBackground = () => {
         gl_FragColor = vec4(spectral_colour(p.y * 50.0 + 500.0 + sin(iTime * 0.6)), 1.0);
       }
     `;
-    
+
     // Create and compile vertex shader
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vertexShader!, vertexShaderSource);
     gl.compileShader(vertexShader!);
-    
+
     // Create and compile fragment shader
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fragmentShader!, fragmentShaderSource);
     gl.compileShader(fragmentShader!);
-    
+
     // Create shader program
     const shaderProgram = gl.createProgram();
     gl.attachShader(shaderProgram!, vertexShader!);
     gl.attachShader(shaderProgram!, fragmentShader!);
     gl.linkProgram(shaderProgram!);
     gl.useProgram(shaderProgram!);
-    
+
     // Create a buffer for the positions
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    
+
     // Full-screen quad vertices
     const positions = [
       -1.0, -1.0,
-       1.0, -1.0,
-      -1.0,  1.0,
-       1.0,  1.0,
+      1.0, -1.0,
+      -1.0, 1.0,
+      1.0, 1.0,
     ];
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-    
+
     // Get attribute location
     const positionAttributeLocation = gl.getAttribLocation(shaderProgram!, "aVertexPosition");
     gl.enableVertexAttribArray(positionAttributeLocation);
     gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
-    
+
     // Get uniform locations
     const timeUniformLocation = gl.getUniformLocation(shaderProgram!, "iTime");
     const resolutionUniformLocation = gl.getUniformLocation(shaderProgram!, "iResolution");
-    
+
     // Animation loop
     let startTime = Date.now();
-    
+
     const render = () => {
       // Set time uniform
       const currentTime = (Date.now() - startTime) / 1000;
       gl.uniform1f(timeUniformLocation, currentTime);
-      
+
       // Set resolution uniform
       gl.uniform2f(resolutionUniformLocation, canvas.width, canvas.height);
-      
+
       // Draw the full-screen quad
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      
+
       // Request next frame
       requestAnimationFrame(render);
     };
-    
+
     render();
-    
+
     // Cleanup
     return () => {
       window.removeEventListener("resize", resizeCanvas);
@@ -135,6 +135,6 @@ export const ShaderBackground = () => {
       gl.deleteBuffer(positionBuffer!);
     };
   }, []);
-  
+
   return <canvas ref={canvasRef} className="absolute inset-0 size-full" />;
 };
