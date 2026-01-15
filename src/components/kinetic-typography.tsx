@@ -372,17 +372,12 @@ export const KineticTypography = ({ onComplete }: KineticTypographyProps) => {
               <motion.h1
                 className="text-white text-4xl sm:text-5xl md:text-7xl lg:text-8xl xl:text-9xl tracking-tight"
                 style={{ fontWeight: 700 }}
-                animate={{
-                  filter: [
-                    'brightness(1) drop-shadow(0 0 0px rgba(255,255,255,0))',
-                    'brightness(1.1) drop-shadow(0 0 20px rgba(255,255,255,0.3))',
-                    'brightness(1) drop-shadow(0 0 0px rgba(255,255,255,0))'
-                  ]
-                }}
+                // Removed expense filter animation for Safari performance
+                initial={{ opacity: 0.8 }}
+                animate={{ opacity: 1 }}
                 transition={{
                   duration: 2,
                   ease: smoothEase,
-                  times: [0, 0.5, 1]
                 }}
               >
                 Accounting made{' '}
@@ -417,18 +412,16 @@ export const KineticTypography = ({ onComplete }: KineticTypographyProps) => {
                 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl tracking-tight"
                 style={{
                   fontWeight: 700,
-                  color: '#ffffff'
+                  color: '#ffffff',
+                  // Static shadow is much cheaper than animating it
+                  textShadow: '0 0 40px rgba(255,255,255,0.4)'
                 }}
                 animate={{
-                  textShadow: [
-                    '0 0 40px rgba(255,255,255,0.6), 0 0 80px rgba(255,255,255,0.3)',
-                    '0 0 60px rgba(255,255,255,0.8), 0 0 120px rgba(255,255,255,0.5)',
-                    '0 0 40px rgba(255,255,255,0.6), 0 0 80px rgba(255,255,255,0.3)'
-                  ]
+                  opacity: [0.8, 1, 0.8]
                 }}
                 transition={{
-                  duration: 3,
-                  ease: smoothEase,
+                  duration: 4,
+                  ease: "easeInOut",
                   repeat: Infinity,
                   repeatType: 'reverse'
                 }}
