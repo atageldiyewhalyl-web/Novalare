@@ -56,7 +56,7 @@ export const ShaderBackground = () => {
       void main() {
         vec2 p = (2.0*gl_FragCoord.xy - iResolution.xy) / min(iResolution.x, iResolution.y);
         p *= 2.0;
-        for(int i=0;i<4;i++) {
+        for(int i=0;i<8;i++) {
           vec2 newp = vec2(
             p.y + cos(p.x + iTime) - sin(p.y * cos(iTime * 0.2)),
             p.x - sin(p.y - iTime) - cos(p.x * sin(iTime * 0.3))
