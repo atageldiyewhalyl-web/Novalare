@@ -1,14 +1,14 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
-import { 
-  ArrowLeft, 
-  Building, 
-  Mail, 
-  FileText, 
-  DollarSign, 
-  Download, 
-  Layers, 
-  Upload, 
-  Plus, 
+import {
+  ArrowLeft,
+  Building,
+  Mail,
+  FileText,
+  DollarSign,
+  Download,
+  Layers,
+  Upload,
+  Plus,
   Receipt as ReceiptIcon,
   Landmark,
   Users,
@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { 
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -36,9 +36,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { 
-  companiesApi, 
-  Company, 
+import {
+  companiesApi,
+  Company,
   invoicesApi,
   receiptsApi,
   Invoice,
@@ -51,12 +51,7 @@ import { toast } from 'sonner@2.0.3';
 import { useQueryClient } from '@tanstack/react-query';
 
 // Lazy load tab components for better performance
-const InvoiceList = lazy(() =>
-  import('./InvoiceList').then((m) => ({ default: m.InvoiceList }))
-);
-const ReceiptsList = lazy(() =>
-  import('./ReceiptsList').then((m) => ({ default: m.ReceiptsList }))
-);
+
 const EmailInbox = lazy(() =>
   import('./EmailInbox').then((m) => ({ default: m.EmailInbox }))
 );
@@ -154,7 +149,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
   }) => {
     try {
       const result = await emailsApi.parseEmail(companyId, emailData);
-      
+
       if (result.invoices.length > 0) {
         toast.success(
           `✅ Email processed successfully!\n\n` +
@@ -169,7 +164,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
           { duration: 5000 }
         );
       }
-      
+
       loadData(); // Reload all data to refresh emails and invoices
     } catch (error) {
       console.error('Failed to process email:', error);
@@ -179,7 +174,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
 
   const handleArchive = async () => {
     if (!company) return;
-    
+
     try {
       await companiesApi.update(company.id, { status: 'Archived' });
       toast.success(`${company.name} has been archived`);
@@ -192,14 +187,14 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
 
   const handleDelete = async () => {
     if (!company) return;
-    
+
     setIsDeleting(true);
     try {
       await companiesApi.delete(company.id);
-      
+
       // Invalidate companies cache to trigger refetch
       queryClient.invalidateQueries({ queryKey: ['companies'] });
-      
+
       toast.success(`${company.name} has been deleted`);
       onNavigate('companies'); // Navigate back to companies list
     } catch (err) {
@@ -225,51 +220,51 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
   }
 
   const workflows = [
-    { 
+    {
       id: 'invoice-extraction',
-      icon: FileText, 
-      title: 'Invoice Extraction', 
-      description: 'Extract and process invoice data', 
+      icon: FileText,
+      title: 'Invoice Extraction',
+      description: 'Extract and process invoice data',
       count: `${metrics?.invoicesExtracted || 0} invoices this month`,
       color: 'blue'
     },
-    { 
+    {
       id: 'bank-reconciliation',
-      icon: Landmark, 
-      title: 'Bank Reconciliation', 
-      description: 'Match transactions with ledger entries', 
+      icon: Landmark,
+      title: 'Bank Reconciliation',
+      description: 'Match transactions with ledger entries',
       count: `${metrics?.bankStatements || 0} statements processed`,
       color: 'green'
     },
-    { 
+    {
       id: 'ap-reconciliation',
-      icon: Users, 
-      title: 'AP Reconciliation', 
-      description: 'Reconcile vendor statements', 
+      icon: Users,
+      title: 'AP Reconciliation',
+      description: 'Reconcile vendor statements',
       count: '1 reconciliation this month',
       color: 'purple'
     },
-    { 
+    {
       id: 'cc-reconciliation',
-      icon: CreditCard, 
-      title: 'Credit Card Reconciliation', 
-      description: 'Review company credit card statements', 
+      icon: CreditCard,
+      title: 'Credit Card Reconciliation',
+      description: 'Review company credit card statements',
       count: 'Upload statements to start',
       color: 'indigo'
     },
-    { 
+    {
       id: 'journal-entries',
-      icon: FileText, 
-      title: 'Journal Entries', 
-      description: 'Create journal entries with AI assistance', 
+      icon: FileText,
+      title: 'Journal Entries',
+      description: 'Create journal entries with AI assistance',
       count: '12 entries generated',
       color: 'orange'
     },
-    { 
+    {
       id: 'month-end-close',
-      icon: Calendar, 
-      title: 'Month-End Close', 
-      description: 'Complete month-end procedures', 
+      icon: Calendar,
+      title: 'Month-End Close',
+      description: 'Complete month-end procedures',
       count: metrics?.monthEndClose || 'Not started',
       color: 'red'
     },
@@ -394,8 +389,8 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                       type: 'receipt' as const,
                       name: rec.fileName,
                       vendor: rec.merchant,
-                      amount: rec.amount != null && rec.amount !== undefined && !isNaN(rec.amount) 
-                        ? rec.amount.toFixed(2) 
+                      amount: rec.amount != null && rec.amount !== undefined && !isNaN(rec.amount)
+                        ? rec.amount.toFixed(2)
                         : 'N/A',
                       timestamp: new Date(rec.emailReceivedAt || rec.createdAt).getTime(),
                       date: new Date(rec.emailReceivedAt || rec.createdAt),
@@ -415,7 +410,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                   <div className="space-y-3">
                     {sortedItems.map((item) => (
                       <div key={item.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                        <div className={theme === 'premium-dark' 
+                        <div className={theme === 'premium-dark'
                           ? "size-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0"
                           : "size-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0"
                         }>
@@ -435,8 +430,8 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                             </div>
                             <div className="text-right flex-shrink-0">
                               <p className="text-sm text-gray-900 font-medium">{item.amount}</p>
-                              <Badge 
-                                variant="secondary" 
+                              <Badge
+                                variant="secondary"
                                 className={item.source === 'email'
                                   ? 'text-[10px] bg-purple-100 text-purple-700 border-purple-200'
                                   : 'text-[10px] bg-gray-100 text-gray-700 border-gray-200'
@@ -447,9 +442,9 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                             </div>
                           </div>
                           <p className="text-xs text-gray-500 mt-1">
-                            {item.date.toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric', 
+                            {item.date.toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
                               year: 'numeric',
                               hour: '2-digit',
                               minute: '2-digit'
@@ -522,7 +517,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                 ];
 
                 // Sort by date (most recent first)
-                const sortedDocs = allDocuments.sort((a, b) => 
+                const sortedDocs = allDocuments.sort((a, b) =>
                   new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
                 );
 
@@ -548,16 +543,15 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                           <tr key={`${doc.type}-${doc.id}`} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="py-4 px-4 text-sm text-gray-900">{doc.name}</td>
                             <td className="py-4 px-4">
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs ${
-                                  doc.type === 'Invoice' ? 'border-blue-200 text-blue-700 bg-blue-50' :
-                                  doc.type === 'Receipt' ? 'border-green-200 text-green-700 bg-green-50' :
-                                  doc.type === 'Bank Statement' ? 'border-purple-200 text-purple-700 bg-purple-50' :
-                                  doc.type === 'Vendor Statement' ? 'border-orange-200 text-orange-700 bg-orange-50' :
-                                  doc.type === 'Credit Card Statement' ? 'border-indigo-200 text-indigo-700 bg-indigo-50' :
-                                  'border-gray-200 text-gray-700 bg-gray-50'
-                                }`}
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${doc.type === 'Invoice' ? 'border-blue-200 text-blue-700 bg-blue-50' :
+                                    doc.type === 'Receipt' ? 'border-green-200 text-green-700 bg-green-50' :
+                                      doc.type === 'Bank Statement' ? 'border-purple-200 text-purple-700 bg-purple-50' :
+                                        doc.type === 'Vendor Statement' ? 'border-orange-200 text-orange-700 bg-orange-50' :
+                                          doc.type === 'Credit Card Statement' ? 'border-indigo-200 text-indigo-700 bg-indigo-50' :
+                                            'border-gray-200 text-gray-700 bg-gray-50'
+                                  }`}
                               >
                                 {doc.type}
                               </Badge>
@@ -572,8 +566,8 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                               })}
                             </td>
                             <td className="py-4 px-4">
-                              <Badge 
-                                variant="secondary" 
+                              <Badge
+                                variant="secondary"
                                 className={doc.source === 'email'
                                   ? 'text-xs bg-purple-100 text-purple-700 border-purple-200'
                                   : 'text-xs bg-gray-100 text-gray-700 border-gray-200'
@@ -583,13 +577,12 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                               </Badge>
                             </td>
                             <td className="py-4 px-4">
-                              <Badge 
-                                variant="secondary" 
-                                className={`text-xs ${
-                                  doc.status === 'Processed' || doc.status === 'Completed' ? 'bg-green-100 text-green-700' : 
-                                  doc.status === 'Pending' || doc.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}
+                              <Badge
+                                variant="secondary"
+                                className={`text-xs ${doc.status === 'Processed' || doc.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                                    doc.status === 'Pending' || doc.status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-gray-100 text-gray-700'
+                                  }`}
                               >
                                 {doc.status}
                               </Badge>
@@ -598,18 +591,18 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                               <div className="flex gap-1">
                                 {doc.fileUrl ? (
                                   <>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       className="h-8 text-xs gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                       onClick={() => window.open(doc.fileUrl, '_blank')}
                                     >
                                       <ExternalLink className="size-3" />
                                       View
                                     </Button>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       className="h-8 text-xs gap-1 text-green-600 hover:text-green-700 hover:bg-green-50"
                                       onClick={() => {
                                         const link = document.createElement('a');
@@ -625,9 +618,9 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                                 ) : (
                                   <span className="text-xs text-gray-400">No file</span>
                                 )}
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   className="h-8 text-xs gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
                                   onClick={() => {
                                     if (doc.type === 'Invoice' || doc.type === 'Receipt') {
@@ -695,8 +688,8 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
             {workflows.map((workflow) => {
               const Icon = workflow.icon;
               return (
-                <Card 
-                  key={workflow.id} 
+                <Card
+                  key={workflow.id}
                   className="hover:shadow-lg transition-shadow cursor-pointer"
                   onClick={() => onNavigate(workflow.id, { companyId, companyName: company.name })}
                 >
@@ -738,7 +731,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
         {/* Chart of Accounts Tab */}
         <TabsContent value="coa" className="mt-6">
           <Suspense fallback={<TabLoader />}>
-            <ChartOfAccountsManager 
+            <ChartOfAccountsManager
               companyId={companyId}
               companyName={company.name}
             />
@@ -764,8 +757,8 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                       <span className="text-sm text-gray-900">{item.step}</span>
                     </div>
                     {item.status !== 'completed' && (
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant={item.status === 'in-progress' ? 'default' : 'outline'}
                         className="h-8"
                       >
