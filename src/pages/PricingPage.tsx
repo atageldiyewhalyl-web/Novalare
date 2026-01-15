@@ -1,4 +1,4 @@
-import { Header } from "@/components/Header";
+import { NewHeader } from "@/components/NewHeader";
 import { Footer } from "@/components/Footer";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
@@ -23,23 +23,23 @@ export function PricingPage() {
       name: "Starter",
       icon: Zap,
       description: "Perfect for small firms getting started with automation",
-      monthlyPrice: 299,
-      annualPrice: 239,
+      monthlyPrice: 35,
+      annualPrice: 28,
       gradient: "from-blue-500 to-cyan-500",
-      clientLimit: "Up to 150 clients",
-      transactionLimit: "Up to 10k transactions/month",
-      timesSaved: "100-200 hours/month",
-      costSaved: "€3,000-€6,000/month",
-      roi: "10-20x",
+      clientLimit: "5-10 clients",
+      transactionLimit: "1,000 invoices & receipts/month",
+      timesSaved: "~45 hours/month",
+      costSaved: "~$1,350/month",
+      roi: "~38x",
       features: [
-        "Up to 150 client companies",
-        "Up to 10,000 transactions/month",
+        "5-10 client companies",
+        "1,000 invoices & receipts/month",
         "Invoice & receipt extraction",
         "Bank reconciliation",
         "AP & AR reconciliation",
         "QuickBooks, Xero & DATEV export",
         "Email support",
-        "3 user seats"
+        "5 user seats"
       ],
       cta: "Start Free Trial",
       popular: false
@@ -48,24 +48,24 @@ export function PricingPage() {
       name: "Professional",
       icon: Building2,
       description: "For growing firms managing multiple clients",
-      monthlyPrice: 699,
-      annualPrice: 559,
+      monthlyPrice: 59,
+      annualPrice: 47,
       gradient: "from-purple-500 to-pink-500",
-      clientLimit: "Up to 500 clients",
-      transactionLimit: "Up to 50k transactions/month",
-      timesSaved: "300-600 hours/month",
-      costSaved: "€9,000-€18,000/month",
-      roi: "13-26x",
+      clientLimit: "10-30 clients",
+      transactionLimit: "5,000 invoices & receipts/month",
+      timesSaved: "~225 hours/month",
+      costSaved: "~$6,750/month",
+      roi: "~114x",
       features: [
-        "Up to 500 client companies",
-        "Up to 50,000 transactions/month",
+        "10-30 client companies",
+        "5,000 invoices & receipts/month",
         "Invoice & receipt extraction",
         "Bank, AP & AR reconciliation",
         "Month-end close automation",
         "Journal entry suggestions",
         "QuickBooks, Xero & DATEV export",
         "Priority support",
-        "10 user seats",
+        "15 user seats",
         "Custom chart of accounts",
         "Workflow templates"
       ],
@@ -82,8 +82,8 @@ export function PricingPage() {
       clientLimit: "Unlimited clients",
       transactionLimit: "Unlimited transactions",
       timesSaved: "1,000+ hours/month",
-      costSaved: "€30,000+/month",
-      roi: "20-40x",
+      costSaved: "$30,000+/month",
+      roi: "Custom",
       features: [
         "Unlimited client companies",
         "Unlimited transactions",
@@ -110,21 +110,11 @@ export function PricingPage() {
         keywords="accounting software pricing, AI bookkeeping cost, DATEV integration pricing, QuickBooks automation pricing, accounting firm software plans, German accounting automation"
       />
       
-      <Header />
+      <NewHeader />
 
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 px-6 overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-b from-purple-900/20 via-transparent to-transparent" />
-        
         <div className="relative max-w-6xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-full mb-6">
-            <Sparkles className="size-4 text-purple-400" />
-            <span className="text-sm text-purple-300" style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '600' }}>
-              Transparent Pricing
-            </span>
-          </div>
-
           <h1 
             className="text-white mb-6"
             style={{
@@ -136,14 +126,10 @@ export function PricingPage() {
             }}
           >
             Simple, Predictable Pricing
-            <br />
-            <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400 bg-clip-text text-transparent">
-              For Every Firm Size
-            </span>
           </h1>
 
           <p 
-            className="text-gray-300 max-w-2xl mx-auto mb-10"
+            className="text-gray-400 max-w-2xl mx-auto mb-10"
             style={{
               fontSize: 'clamp(16px, 2vw, 20px)',
               fontFamily: "'Manrope', sans-serif",
@@ -151,7 +137,7 @@ export function PricingPage() {
               lineHeight: '1.6'
             }}
           >
-            All plans include a 14-day free trial. No credit card required. Cancel anytime.
+            All plans include a 1 month free trial. No credit card required. Cancel anytime.
           </p>
 
           {/* Billing Toggle */}
@@ -160,7 +146,7 @@ export function PricingPage() {
               onClick={() => setBillingPeriod('monthly')}
               className={`px-6 py-2 rounded-full transition-all duration-300 ${
                 billingPeriod === 'monthly'
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                  ? 'bg-white text-black'
                   : 'text-gray-400 hover:text-white'
               }`}
               style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '600' }}
@@ -171,7 +157,7 @@ export function PricingPage() {
               onClick={() => setBillingPeriod('annual')}
               className={`px-6 py-2 rounded-full transition-all duration-300 relative ${
                 billingPeriod === 'annual'
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                  ? 'bg-white text-black'
                   : 'text-gray-400 hover:text-white'
               }`}
               style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '600' }}
@@ -189,44 +175,44 @@ export function PricingPage() {
       <section className="relative py-12 px-6">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gradient-to-br from-green-900/20 to-green-800/10 border border-green-500/20 rounded-2xl p-6 text-center">
-              <Clock className="size-10 text-green-400 mx-auto mb-3" />
+            <div className="bg-gray-900/50 border border-white/10 rounded-2xl p-6 text-center">
+              <Clock className="size-10 text-white/80 mx-auto mb-3" />
               <div 
-                className="text-green-300 mb-1"
+                className="text-white mb-1"
                 style={{
                   fontSize: '32px',
                   fontWeight: '800',
                   fontFamily: "'Outfit', sans-serif"
                 }}
               >
-                100-600 hours
+                40+ hours
               </div>
               <p 
-                className="text-gray-300"
+                className="text-gray-400"
                 style={{
                   fontSize: '14px',
                   fontFamily: "'Manrope', sans-serif",
                   fontWeight: '500'
                 }}
               >
-                saved per month (depending on plan)
+                saved every month
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-purple-900/20 to-purple-800/10 border border-purple-500/20 rounded-2xl p-6 text-center">
-              <TrendingDown className="size-10 text-purple-400 mx-auto mb-3" />
+            <div className="bg-gray-900/50 border border-white/10 rounded-2xl p-6 text-center">
+              <TrendingDown className="size-10 text-white/80 mx-auto mb-3" />
               <div 
-                className="text-purple-300 mb-1"
+                className="text-white mb-1"
                 style={{
                   fontSize: '32px',
                   fontWeight: '800',
                   fontFamily: "'Outfit', sans-serif"
                 }}
               >
-                10-26x ROI
+                10x+ ROI
               </div>
               <p 
-                className="text-gray-300"
+                className="text-gray-400"
                 style={{
                   fontSize: '14px',
                   fontFamily: "'Manrope', sans-serif",
@@ -237,27 +223,27 @@ export function PricingPage() {
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-blue-900/20 to-blue-800/10 border border-blue-500/20 rounded-2xl p-6 text-center">
-              <Shield className="size-10 text-blue-400 mx-auto mb-3" />
+            <div className="bg-gray-900/50 border border-white/10 rounded-2xl p-6 text-center">
+              <Shield className="size-10 text-white/80 mx-auto mb-3" />
               <div 
-                className="text-blue-300 mb-1"
+                className="text-white mb-1"
                 style={{
                   fontSize: '32px',
                   fontWeight: '800',
                   fontFamily: "'Outfit', sans-serif"
                 }}
               >
-                €299-€699
+                $59/mo
               </div>
               <p 
-                className="text-gray-300"
+                className="text-gray-400"
                 style={{
                   fontSize: '14px',
                   fontFamily: "'Manrope', sans-serif",
                   fontWeight: '500'
                 }}
               >
-                Fixed per-firm pricing, not per client
+                Simple, flat-rate pricing
               </p>
             </div>
           </div>
@@ -276,7 +262,7 @@ export function PricingPage() {
                 {/* Popular badge */}
                 {plan.popular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10">
-                    <div className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-1 rounded-full text-sm"
+                    <div className="bg-white text-black px-4 py-1 rounded-full text-sm"
                       style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '700' }}
                     >
                       Most Popular
@@ -284,13 +270,10 @@ export function PricingPage() {
                   </div>
                 )}
 
-                {/* Glow effect */}
-                <div className={`absolute -inset-0.5 bg-gradient-to-r ${plan.gradient} rounded-3xl opacity-${plan.popular ? '30' : '0'} group-hover:opacity-30 blur-xl transition-opacity duration-500`} />
-                
                 {/* Card */}
-                <div className={`relative bg-gray-900/50 backdrop-blur-sm border ${plan.popular ? 'border-purple-500/30' : 'border-white/10'} rounded-3xl p-8 hover:border-purple-500/30 transition-all duration-300 h-full flex flex-col`}>
+                <div className={`relative bg-gray-900/50 backdrop-blur-sm border ${plan.popular ? 'border-white/20' : 'border-white/10'} rounded-3xl p-8 hover:border-white/30 transition-all duration-300 h-full flex flex-col`}>
                   {/* Icon */}
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${plan.gradient} flex items-center justify-center mb-6 shadow-lg`}>
+                  <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-6">
                     <plan.icon className="size-7 text-white" strokeWidth={2} />
                   </div>
 
@@ -333,7 +316,7 @@ export function PricingPage() {
                               letterSpacing: '-0.02em'
                             }}
                           >
-                            €{billingPeriod === 'monthly' ? plan.monthlyPrice : plan.annualPrice}
+                            ${billingPeriod === 'monthly' ? plan.monthlyPrice : plan.annualPrice}
                           </span>
                           <span 
                             className="text-gray-400"
@@ -355,7 +338,7 @@ export function PricingPage() {
                               fontWeight: '600'
                             }}
                           >
-                            Billed annually at €{(plan.annualPrice || 0) * 12}
+                            Billed annually at ${(plan.annualPrice || 0) * 12}
                           </p>
                         )}
                       </>
@@ -371,76 +354,6 @@ export function PricingPage() {
                         Custom
                       </span>
                     )}
-                  </div>
-
-                  {/* ROI Highlight */}
-                  <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-xl p-4 mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <span 
-                        className="text-gray-300"
-                        style={{
-                          fontSize: '13px',
-                          fontFamily: "'Manrope', sans-serif",
-                          fontWeight: '600'
-                        }}
-                      >
-                        Time Saved:
-                      </span>
-                      <span 
-                        className="text-green-400"
-                        style={{
-                          fontSize: '14px',
-                          fontFamily: "'Outfit', sans-serif",
-                          fontWeight: '700'
-                        }}
-                      >
-                        {plan.timesSaved}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span 
-                        className="text-gray-300"
-                        style={{
-                          fontSize: '13px',
-                          fontFamily: "'Manrope', sans-serif",
-                          fontWeight: '600'
-                        }}
-                      >
-                        Cost Saved:
-                      </span>
-                      <span 
-                        className="text-green-400"
-                        style={{
-                          fontSize: '14px',
-                          fontFamily: "'Outfit', sans-serif",
-                          fontWeight: '700'
-                        }}
-                      >
-                        {plan.costSaved}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between pt-2 border-t border-green-500/20">
-                      <span 
-                        className="text-gray-300"
-                        style={{
-                          fontSize: '13px',
-                          fontFamily: "'Manrope', sans-serif",
-                          fontWeight: '600'
-                        }}
-                      >
-                        ROI:
-                      </span>
-                      <span 
-                        className="text-green-400"
-                        style={{
-                          fontSize: '18px',
-                          fontFamily: "'Outfit', sans-serif",
-                          fontWeight: '800'
-                        }}
-                      >
-                        {plan.roi}
-                      </span>
-                    </div>
                   </div>
 
                   {/* Features */}
@@ -467,7 +380,7 @@ export function PricingPage() {
                     onClick={handleTrialClick}
                     className={`w-full h-12 ${
                       plan.popular
-                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white border-0'
+                        ? 'bg-white text-black hover:bg-gray-100'
                         : 'bg-white/5 border border-white/10 text-white hover:bg-white/10'
                     } transition-all duration-300`}
                     style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '600' }}
@@ -501,19 +414,7 @@ export function PricingPage() {
             {[
               {
                 q: "What's included in the free trial?",
-                a: "All plans include a full-featured 14-day trial. No credit card required. You get access to all features of your chosen plan including all reconciliation workflows, invoice extraction, and DATEV/QuickBooks/Xero exports."
-              },
-              {
-                q: "How is Novalare different from Dext, Candis, or Vic.ai?",
-                a: "Most tools just extract invoice fields (OCR). Novalare understands the full context: how invoices relate to bank transactions, ledger entries, and reconciliation. We prevent duplicates at upload, auto-match to bank data, and suggest journal entries at month-end. You get 'review & approve' workflows instead of 'cleanup & fix' chaos."
-              },
-              {
-                q: "How is pricing calculated?",
-                a: "Pricing is per firm, not per client company. This means €299-€699 covers your entire team regardless of how many clients you manage (within plan limits). No hidden per-client fees, no surprises."
-              },
-              {
-                q: "Why is per-firm pricing better than per-client?",
-                a: "German accounting firms think in terms of team tools and monthly budgets, not per-client math. €299/month is one predictable line item that replaces 100+ hours of manual work—making budget approval simple and ROI obvious."
+                a: "All plans include a full-featured 1 month trial. No credit card required. You get access to all features of your chosen plan including all reconciliation workflows, invoice extraction, and DATEV/QuickBooks/Xero exports."
               },
               {
                 q: "Can I upgrade or downgrade later?",
@@ -566,39 +467,36 @@ export function PricingPage() {
       {/* CTA Section */}
       <section className="relative py-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 rounded-3xl opacity-20 blur-2xl" />
-            <div className="relative bg-gradient-to-br from-purple-900/50 to-pink-900/50 border border-purple-500/20 rounded-3xl p-12">
-              <h2 
-                className="text-white mb-4"
-                style={{
-                  fontSize: 'clamp(28px, 3.5vw, 42px)',
-                  fontWeight: '800',
-                  fontFamily: "'Outfit', sans-serif",
-                  letterSpacing: '-0.02em'
-                }}
-              >
-                Ready to Get Started?
-              </h2>
-              <p 
-                className="text-purple-200 mb-8"
-                style={{
-                  fontSize: '18px',
-                  fontFamily: "'Manrope', sans-serif",
-                  fontWeight: '500'
-                }}
-              >
-                Start your 14-day free trial today. No credit card required.
-              </p>
-              <Button
-                onClick={handleTrialClick}
-                className="h-14 px-10 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white border-0 shadow-lg shadow-purple-500/25"
-                style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '700' }}
-              >
-                Start Free Trial
-                <ArrowRight className="ml-2 size-5" />
-              </Button>
-            </div>
+          <div className="bg-gray-900/50 border border-white/10 rounded-3xl p-12">
+            <h2 
+              className="text-white mb-4"
+              style={{
+                fontSize: 'clamp(28px, 3.5vw, 42px)',
+                fontWeight: '800',
+                fontFamily: "'Outfit', sans-serif",
+                letterSpacing: '-0.02em'
+              }}
+            >
+              Ready to Get Started?
+            </h2>
+            <p 
+              className="text-gray-400 mb-8"
+              style={{
+                fontSize: '18px',
+                fontFamily: "'Manrope', sans-serif",
+                fontWeight: '500'
+              }}
+            >
+              Start your 1 month free trial today. No credit card required.
+            </p>
+            <Button
+              onClick={handleTrialClick}
+              className="h-14 px-10 bg-white text-black hover:bg-gray-100 transition-all"
+              style={{ fontFamily: "'Outfit', sans-serif", fontWeight: '700' }}
+            >
+              Start Free Trial
+              <ArrowRight className="ml-2 size-5" />
+            </Button>
           </div>
         </div>
       </section>

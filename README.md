@@ -1,7 +1,7 @@
 
-  # Novalare_why
+  # Novalare
 
-  This is a code bundle for Novalare_why. The original project is available at https://www.figma.com/design/37MdmIBTRmNsZ2pDuOKFRg/Novalare_why.
+  This is a code bundle for Novalare. The original project is available at https://www.figma.com/design/37MdmIBTRmNsZ2pDuOKFRg/Novalare.
 
   ## Running the code
 

@@ -1,7 +1,7 @@
 import { Hono } from 'npm:hono';
 import * as kv from './kv_store.tsx';
 
-const app = new Hono().basePath('/make-server-53c2e113');
+const app = new Hono().basePath('/make-server-53c2e113');  // Add basePath to match other routes
 
 // ============================================
 // JOURNAL ENTRIES ROUTES

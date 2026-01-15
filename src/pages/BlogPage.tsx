@@ -24,6 +24,7 @@ export function BlogPage() {
         title="Blog - AI Accounting Insights & Tutorials | Novalare"
         description="Learn about AI accounting automation, DATEV integration, invoice extraction, and bookkeeping best practices. Tips and tutorials for modern accounting firms."
         keywords="accounting blog, AI accounting tutorials, DATEV guides, invoice extraction tips, bank reconciliation best practices, accounting automation"
+        canonicalUrl="https://www.novalare.com/blog"
       />
       
       <Header />

@@ -1,10 +1,10 @@
 import { Button } from '@/components/ui/button';
-import { Download, Receipt, Building, Trash2, Eye, Upload, ChevronDown, Mail, RefreshCw } from 'lucide-react';
+import { Download, Receipt, Building, Trash2, Eye, Upload, ChevronDown, Mail, RefreshCw, Copy, Check, Calendar, ArrowUpDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useEffect, useState, useRef } from 'react';
-import { companiesApi, Company, receiptsApi, Receipt as ApiReceipt } from '@/utils/api-client';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { receiptsApi } from '@/utils/api-client';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '@/utils/supabase/info';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -14,6 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import gmailLogo from 'figma:asset/6953f24e6e4fbbab68b8caadff36f375063095c2.png';
 
 interface ReceiptData {
   id: string;
@@ -46,90 +48,115 @@ interface ReceiptData {
 }
 
 interface ReceiptExtractionProps {
-  companyId?: string;
+  companyId: string;
+  selectedPeriod: string;
+  setSelectedPeriod: (period: string) => void;
+  sortBy: 'receipt-date' | 'upload-date';
+  setSortBy: (sortBy: 'receipt-date' | 'upload-date') => void;
 }
 
-export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
+export function ReceiptExtraction({ companyId, selectedPeriod, setSelectedPeriod, sortBy, setSortBy }: ReceiptExtractionProps) {
   const { theme } = useTheme();
-  const [receipts, setReceipts] = useState<ReceiptData[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [loading, setLoading] = useState(true);
-  const [receiptsLoading, setReceiptsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [expandedReceiptIds, setExpandedReceiptIds] = useState<Set<string>>(new Set());
   const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null);
+  const [emailSettings, setEmailSettings] = useState<any>(null);
+  const [copiedEmail, setCopiedEmail] = useState(false);
 
-  useEffect(() => {
-    loadCompanies();
-  }, []);
-
-  useEffect(() => {
-    if (selectedCompanyId) {
-      loadReceipts();
+  // Generate period options (current and previous 12 months)
+  const generatePeriodOptions = () => {
+    const options: { value: string; label: string }[] = [
+      { value: 'all', label: 'All Periods' }
+    ];
+    const currentDate = new Date();
+    
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      const year = date.getFullYear();
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const value = `${year}-${month}`;
+      const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      options.push({ value, label });
     }
-  }, [selectedCompanyId]);
+    
+    return options;
+  };
 
-  // Auto-reload companies when window regains focus (in case user added company in another tab)
+  // Fetch email settings
   useEffect(() => {
-    const handleFocus = () => {
-      loadCompanies();
+    const fetchEmailSettings = async () => {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/companies/${companyId}/email-settings`,
+          {
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+            },
+          }
+        );
+        const data = await response.json();
+        setEmailSettings(data);
+      } catch (error) {
+        console.error('Failed to fetch email settings:', error);
+      }
     };
     
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, []);
+    if (companyId) {
+      fetchEmailSettings();
+    }
+  }, [companyId]);
 
-  const loadCompanies = async () => {
-    try {
-      const data = await companiesApi.getAll();
-      setCompanies(data);
-      if (companyId) {
-        setSelectedCompanyId(companyId);
-      } else if (data.length > 0) {
-        setSelectedCompanyId(data[0].id);
+  // Fetch receipts with React Query
+  const { data: allReceipts = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['receipts', companyId],
+    queryFn: () => receiptsApi.getByCompany(companyId),
+    enabled: !!companyId,
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
+    refetchOnWindowFocus: false, // Disable aggressive auto-reload
+  });
+
+  // Filter receipts by selected period and sort
+  const receipts = useMemo(() => {
+    let filtered = allReceipts;
+    
+    // Filter by period if not "all"
+    if (selectedPeriod && selectedPeriod !== 'all') {
+      const [year, month] = selectedPeriod.split('-').map(Number);
+      
+      filtered = allReceipts.filter((receipt) => {
+        // Use upload date (uploadedAt) when sorting by upload date, otherwise use receipt date
+        const dateToCheck = sortBy === 'upload-date' ? new Date(receipt.uploadedAt) : new Date(receipt.date);
+        return dateToCheck.getFullYear() === year && dateToCheck.getMonth() + 1 === month;
+      });
+    }
+    
+    // Sort by selected criteria
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === 'receipt-date') {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      } else {
+        // Sort by upload date (uploadedAt)
+        return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
       }
-      setLoading(false);
-    } catch (err) {
-      console.error('Failed to load companies:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load companies');
-      setLoading(false);
-    }
-  };
+    });
+    
+    return sorted;
+  }, [allReceipts, selectedPeriod, sortBy]);
 
-  const loadReceipts = async () => {
-    if (!selectedCompanyId) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setReceiptsLoading(true);
-      setError(null);
-
-      const data = await receiptsApi.getByCompany(selectedCompanyId);
-      setReceipts(data as ReceiptData[]);
-    } catch (err) {
-      console.error('Failed to load receipts:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load receipts');
-    } finally {
-      setReceiptsLoading(false);
-    }
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <div className={theme === 'premium-dark' 
-            ? 'w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4' 
-            : 'w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4'
-          }></div>
-          <p className={theme === 'premium-dark' ? 'text-gray-400' : 'text-gray-600'}>Loading receipts...</p>
+          <div className={`w-12 h-12 border-4 rounded-full animate-spin mx-auto mb-4 ${
+            theme === 'dark'
+              ? 'border-zinc-700 border-t-[#65D3FD]'
+              : 'border-gray-200 border-t-[#65D3FD]'
+          }`}></div>
+          <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>Loading receipts...</p>
         </div>
       </div>
     );
@@ -137,12 +164,18 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
 
   if (error) {
     return (
-      <div className={theme === 'premium-dark' 
-        ? 'p-6 bg-red-900/20 border border-red-500/30 rounded-lg' 
-        : 'p-6 bg-red-50 border border-red-200 rounded-lg'
-      }>
-        <p className={theme === 'premium-dark' ? 'text-red-400' : 'text-red-600'}>Error: {error}</p>
-        <Button onClick={loadReceipts} variant="outline" className="mt-4">Retry</Button>
+      <div className={`p-6 rounded-lg border ${
+        theme === 'dark' 
+          ? 'bg-red-900/20 border-red-500/30' 
+          : 'bg-red-50 border-red-200'
+      }`}>
+        <p className={theme === 'dark' ? 'text-red-400' : 'text-red-600'}>
+          Error: {error instanceof Error ? error.message : 'Failed to load receipts'}
+        </p>
+        <Button onClick={() => refetch()} variant="outline" className="mt-4">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
       </div>
     );
   }
@@ -151,6 +184,11 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
     if (!confirm(`Are you sure you want to delete receipt from ${receipt.merchant}?`)) {
       return;
     }
+
+    // Optimistic update
+    queryClient.setQueryData(['receipts', companyId], (old: ReceiptData[] = []) => 
+      old.filter(r => r.id !== receipt.id)
+    );
 
     try {
       // Call backend API to delete receipt
@@ -169,11 +207,10 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
         throw new Error(errorData.error || 'Failed to delete receipt');
       }
 
-      // Remove from local state
-      setReceipts(receipts.filter(r => r.id !== receipt.id));
       toast.success('Receipt deleted successfully');
     } catch (error) {
       console.error('Failed to delete receipt:', error);
+      queryClient.invalidateQueries(['receipts', companyId]);
       toast.error(error instanceof Error ? error.message : 'Failed to delete receipt');
     }
   };
@@ -221,10 +258,9 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
     if (!receipt) return;
 
     // Optimistic update - update UI immediately
-    const previousReceipts = receipts;
-    setReceipts(receipts.map(r => 
-      r.id === receiptId ? { ...r, ...updates } : r
-    ));
+    queryClient.setQueryData(['receipts', companyId], (old: ReceiptData[] = []) =>
+      old.map(r => r.id === receiptId ? { ...r, ...updates } : r)
+    );
     setEditingReceiptId(null);
 
     // Make API call in the background
@@ -245,7 +281,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
     }).catch(error => {
       // Rollback on error
       console.error('Failed to update receipt:', error);
-      setReceipts(previousReceipts);
+      queryClient.invalidateQueries(['receipts', companyId]);
       toast.error('Failed to update receipt');
     });
   };
@@ -366,7 +402,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!selectedCompanyId) {
+    if (!companyId) {
       toast.error('Please select a company first');
       return;
     }
@@ -401,7 +437,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
 
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('companyId', selectedCompanyId);
+      formData.append('companyId', companyId);
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/api/receipts/upload`,
@@ -424,8 +460,8 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
       
       toast.success(`Receipt extracted: ${data.receipt.merchant} - ${formatCurrency(data.receipt.total)}`);
       
-      // Reload receipts
-      await loadReceipts();
+      // Reload receipts via React Query
+      queryClient.invalidateQueries(['receipts', companyId]);
       setUploadDialogOpen(false);
 
       // Reset file input
@@ -447,11 +483,11 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
     
     switch (normalizedStatus) {
       case 'Pending':
-        return <Badge variant="secondary" className={theme === 'premium-dark' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-yellow-100 text-yellow-800'}>Pending Review</Badge>;
+        return <Badge variant="secondary" className={theme === 'dark' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-yellow-100 text-yellow-800'}>Pending Review</Badge>;
       case 'Reviewed':
-        return <Badge variant="secondary" className={theme === 'premium-dark' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-red-100 text-red-800'}>Reviewed</Badge>;
+        return <Badge variant="secondary" className={theme === 'dark' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-red-100 text-red-800'}>Reviewed</Badge>;
       case 'Approved':
-        return <Badge variant="secondary" className={theme === 'premium-dark' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-green-100 text-green-800'}>Approved</Badge>;
+        return <Badge variant="secondary" className={theme === 'dark' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-green-100 text-green-800'}>Approved</Badge>;
       default:
         return <Badge variant="secondary">{normalizedStatus}</Badge>;
     }
@@ -482,106 +518,188 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
-      {/* Header - Ultra Minimal */}
+      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className={theme === 'premium-dark' ? 'text-4xl tracking-tight text-white' : 'text-4xl tracking-tight text-gray-900'}>Receipt Extraction</h1>
-          <p className={theme === 'premium-dark' ? 'text-purple-300/40 text-sm mt-2' : 'text-gray-400 text-sm mt-2'}>
+          <h1 className={theme === 'dark' ? 'text-4xl tracking-tight text-white' : 'text-4xl tracking-tight text-gray-900'}>
+            Receipt Extraction
+          </h1>
+          <p className={theme === 'dark' ? 'text-gray-400 text-sm mt-2' : 'text-gray-500 text-sm mt-2'}>
             Upload and extract receipt data with AI
           </p>
         </div>
         <Button 
           onClick={() => setUploadDialogOpen(true)} 
-          className={theme === 'premium-dark'
-            ? 'gap-2 bg-white text-black hover:bg-white/90 h-10 px-6 rounded-full'
-            : 'gap-2 h-10 px-6 rounded-full'
-          }
+          className="gap-2 bg-[#65D3FD] hover:bg-[#65D3FD]/90 text-black h-10 px-6 rounded-full"
         >
           <Upload className="size-4" />
           Upload Receipt
         </Button>
       </div>
 
-      {/* Stats - Minimal Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className={theme === 'premium-dark'
-          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
-          : 'bg-gray-50/50 rounded-2xl p-6'
-        }>
-          <div className={theme === 'premium-dark' ? 'text-purple-300/40 text-xs mb-2' : 'text-gray-400 text-xs mb-2'}>Total Receipts</div>
-          <div className={theme === 'premium-dark' ? 'text-3xl text-white tracking-tight' : 'text-3xl text-gray-900 tracking-tight'}>{receipts.length}</div>
+      {/* Email Banner - Show forwarding email address */}
+      {emailSettings?.forwardingEmail && (
+        <div className={`
+          inline-flex items-center gap-3 px-4 py-2.5 rounded-lg border w-fit
+          ${theme === 'dark' 
+            ? 'bg-transparent border-zinc-800' 
+            : 'bg-transparent border-gray-200'
+          }
+        `}>
+          <img src={gmailLogo} alt="Gmail" className="w-6 h-6" />
+          <span className={theme === 'dark' ? 'text-sm text-gray-400' : 'text-sm text-gray-600'}>
+            Forward to:
+          </span>
+          <span className={`text-sm ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+            {emailSettings.forwardingEmail}
+          </span>
+          <button
+            onClick={() => {
+              // Use legacy method directly to avoid clipboard API errors
+              const textArea = document.createElement('textarea');
+              textArea.value = emailSettings.forwardingEmail;
+              textArea.style.position = 'fixed';
+              textArea.style.left = '-999999px';
+              document.body.appendChild(textArea);
+              textArea.select();
+              try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                  setCopiedEmail(true);
+                  toast.success('Email copied to clipboard!');
+                  setTimeout(() => setCopiedEmail(false), 2000);
+                } else {
+                  toast.error('Failed to copy email');
+                }
+              } catch (err) {
+                toast.error('Failed to copy email');
+              } finally {
+                document.body.removeChild(textArea);
+              }
+            }}
+            className={`
+              flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors text-sm
+              ${theme === 'dark' 
+                ? 'text-gray-400 hover:text-white hover:bg-zinc-800' 
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }
+            `}
+          >
+            {copiedEmail ? (
+              <>
+                <Check className="size-4 text-green-500" />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy className="size-4" />
+                Copy
+              </>
+            )}
+          </button>
         </div>
+      )}
 
-        <div className={theme === 'premium-dark'
-          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
-          : 'bg-gray-50/50 rounded-2xl p-6'
-        }>
-          <div className={theme === 'premium-dark' ? 'text-purple-300/40 text-xs mb-2' : 'text-gray-400 text-xs mb-2'}>Pending Review</div>
-          <div className="text-3xl text-yellow-500 tracking-tight">{pendingCount}</div>
-        </div>
-
-        <div className={theme === 'premium-dark'
-          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
-          : 'bg-gray-50/50 rounded-2xl p-6'
-        }>
-          <div className={theme === 'premium-dark' ? 'text-purple-300/40 text-xs mb-2' : 'text-gray-400 text-xs mb-2'}>Approved</div>
-          <div className="text-3xl text-green-500 tracking-tight">{approvedCount}</div>
-        </div>
-
-        <div className={theme === 'premium-dark'
-          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
-          : 'bg-gray-50/50 rounded-2xl p-6'
-        }>
-          <div className={theme === 'premium-dark' ? 'text-purple-300/40 text-xs mb-2' : 'text-gray-400 text-xs mb-2'}>Total Amount</div>
-          <div className={theme === 'premium-dark' ? 'text-3xl text-white tracking-tight' : 'text-3xl text-gray-900 tracking-tight'}>{formatCurrency(totalAmount)}</div>
-        </div>
-      </div>
-
-      {/* Filters - No Card Wrapper */}
+      {/* Period Selector & Sort By */}
       <div className="flex gap-4 items-center">
-        <div className="flex gap-2 flex-1">
-          <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
-            <SelectTrigger className={theme === 'premium-dark' 
-              ? 'bg-white/[0.03] border-white/10 text-white hover:bg-white/[0.05] h-11 rounded-xl flex-1' 
-              : 'bg-gray-50/50 border-gray-200 h-11 rounded-xl flex-1'
+        <div className="flex-1 max-w-sm">
+          <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+            <SelectTrigger className={theme === 'dark' 
+              ? 'bg-white/[0.03] border-white/10 text-white hover:bg-white/[0.05] h-11 rounded-xl' 
+              : 'bg-gray-50/50 border-gray-200 h-11 rounded-xl'
             }>
-              <Building className="size-4 mr-2" />
-              <SelectValue placeholder="Select company" />
+              <Calendar className="size-4 mr-2" />
+              <SelectValue placeholder="Select a period" />
             </SelectTrigger>
-            <SelectContent className={theme === 'premium-dark' ? 'bg-gray-900 border-white/10' : ''}>
-              {companies.map((company) => (
+            <SelectContent className={theme === 'dark' ? 'bg-gray-900 border-white/10' : ''}>
+              {generatePeriodOptions().map((option) => (
                 <SelectItem 
-                  key={company.id} 
-                  value={company.id}
-                  className={theme === 'premium-dark' ? 'text-gray-300 hover:bg-purple-500/10 focus:bg-purple-500/10 focus:text-white' : ''}
+                  key={option.value} 
+                  value={option.value} 
+                  className={theme === 'dark' ? 'text-gray-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:text-white' : ''}
                 >
-                  {company.name}
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              loadCompanies();
-              toast.success('Companies refreshed');
-            }}
-            className={theme === 'premium-dark' 
-              ? 'bg-white/[0.03] border-white/10 text-gray-300 hover:bg-white/[0.05] hover:text-white h-11 w-11 rounded-xl' 
-              : 'bg-gray-50/50 border-gray-200 h-11 w-11 rounded-xl'
-            }
-            title="Refresh companies"
-          >
-            <RefreshCw className="size-4" />
-          </Button>
         </div>
+        
+        {/* Sort By Toggle */}
+        <div className="flex-1 max-w-sm">
+          <Select value={sortBy} onValueChange={(value: 'receipt-date' | 'upload-date') => setSortBy(value)}>
+            <SelectTrigger className={theme === 'dark' 
+              ? 'bg-white/[0.03] border-white/10 text-white hover:bg-white/[0.05] h-11 rounded-xl' 
+              : 'bg-gray-50/50 border-gray-200 h-11 rounded-xl'
+            }>
+              <ArrowUpDown className="size-4 mr-2" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent className={theme === 'dark' ? 'bg-gray-900 border-white/10' : ''}>
+              <SelectItem 
+                value="receipt-date" 
+                className={theme === 'dark' ? 'text-gray-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:text-white' : ''}
+              >
+                Sort by Receipt Date
+              </SelectItem>
+              <SelectItem 
+                value="upload-date" 
+                className={theme === 'dark' ? 'text-gray-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:text-white' : ''}
+              >
+                Sort by Upload Date
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className={theme === 'dark'
+          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
+          : 'bg-gray-50/50 rounded-2xl p-6'
+        }>
+          <div className={theme === 'dark' ? 'text-gray-400 text-xs mb-2' : 'text-gray-500 text-xs mb-2'}>Total Receipts</div>
+          <div className={theme === 'dark' ? 'text-3xl text-white tracking-tight' : 'text-3xl text-gray-900 tracking-tight'}>
+            {receipts.length}
+          </div>
+        </div>
+
+        <div className={theme === 'dark'
+          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
+          : 'bg-gray-50/50 rounded-2xl p-6'
+        }>
+          <div className={theme === 'dark' ? 'text-gray-400 text-xs mb-2' : 'text-gray-500 text-xs mb-2'}>Pending Review</div>
+          <div className="text-3xl text-yellow-500 tracking-tight">{pendingCount}</div>
+        </div>
+
+        <div className={theme === 'dark'
+          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
+          : 'bg-gray-50/50 rounded-2xl p-6'
+        }>
+          <div className={theme === 'dark' ? 'text-gray-400 text-xs mb-2' : 'text-gray-500 text-xs mb-2'}>Approved</div>
+          <div className="text-3xl text-green-500 tracking-tight">{approvedCount}</div>
+        </div>
+
+        <div className={theme === 'dark'
+          ? 'bg-white/[0.03] rounded-2xl p-6 border border-white/5'
+          : 'bg-gray-50/50 rounded-2xl p-6'
+        }>
+          <div className={theme === 'dark' ? 'text-gray-400 text-xs mb-2' : 'text-gray-500 text-xs mb-2'}>Total Amount</div>
+          <div className={theme === 'dark' ? 'text-3xl text-white tracking-tight' : 'text-3xl text-gray-900 tracking-tight'}>
+            {formatCurrency(totalAmount)}
+          </div>
+        </div>
+      </div>
+
+      {/* Filters & Actions */}
+      <div className="flex gap-4 items-center justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
               disabled={selectedReceiptIds.size === 0}
-              className={theme === 'premium-dark' 
+              className={theme === 'dark' 
                 ? 'bg-white/[0.03] border-white/10 text-gray-300 hover:bg-white/[0.05] hover:text-white h-11 rounded-xl' 
                 : 'bg-gray-50/50 border-gray-200 h-11 rounded-xl'
               }
@@ -593,17 +711,17 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent 
             align="end"
-            className={theme === 'premium-dark' ? 'bg-gray-900 border-white/10' : ''}
+            className={theme === 'dark' ? 'bg-gray-900 border-white/10' : ''}
           >
             <DropdownMenuItem 
               onClick={exportToCSV}
-              className={theme === 'premium-dark' ? 'text-gray-300 hover:bg-purple-500/10 focus:bg-purple-500/10 focus:text-white' : ''}
+              className={theme === 'dark' ? 'text-gray-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:text-white' : ''}
             >
               Export as CSV
             </DropdownMenuItem>
             <DropdownMenuItem 
               onClick={exportToXLSX}
-              className={theme === 'premium-dark' ? 'text-gray-300 hover:bg-purple-500/10 focus:bg-purple-500/10 focus:text-white' : ''}
+              className={theme === 'dark' ? 'text-gray-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:text-white' : ''}
             >
               Export as XLSX
             </DropdownMenuItem>
@@ -611,46 +729,58 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
         </DropdownMenu>
       </div>
 
-      {/* Receipts List - Minimal */}
+      {/* Receipts List */}
       <div>
         <div className="flex items-center justify-between mb-6">
-          <h2 className={theme === 'premium-dark' ? 'text-lg text-white/80 tracking-tight' : 'text-lg text-gray-700 tracking-tight'}>Receipts</h2>
+          <h2 className={theme === 'dark' ? 'text-lg text-white/80 tracking-tight' : 'text-lg text-gray-700 tracking-tight'}>
+            Receipts
+          </h2>
           <div className="flex items-center gap-2">
             <Checkbox
               checked={selectedReceiptIds.size === receipts.length && receipts.length > 0}
               onCheckedChange={toggleSelectAll}
-              disabled={receiptsLoading}
-              className={theme === 'premium-dark' ? 'border-white/20 data-[state=checked]:bg-white data-[state=checked]:text-black data-[state=checked]:border-white' : ''}
+              disabled={isLoading}
+              className={theme === 'dark' ? 'border-white/20 data-[state=checked]:bg-white data-[state=checked]:text-black data-[state=checked]:border-white' : ''}
             />
-            <span className={theme === 'premium-dark' ? 'text-sm text-purple-300/40' : 'text-sm text-gray-400'}>Select All</span>
+            <span className={theme === 'dark' ? 'text-sm text-gray-400' : 'text-sm text-gray-500'}>Select All</span>
           </div>
         </div>
 
-        {receiptsLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <div className={theme === 'premium-dark' 
-                ? 'w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4' 
-                : 'w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4'
-              }></div>
-              <p className={theme === 'premium-dark' ? 'text-gray-400' : 'text-gray-600'}>Loading receipts...</p>
+              <div className={`w-12 h-12 border-4 rounded-full animate-spin mx-auto mb-4 ${
+                theme === 'dark'
+                  ? 'border-zinc-700 border-t-[#65D3FD]'
+                  : 'border-gray-200 border-t-[#65D3FD]'
+              }`}></div>
+              <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>Loading receipts...</p>
             </div>
           </div>
         ) : receipts.length === 0 ? (
-          <div className={theme === 'premium-dark' 
+          <div className={theme === 'dark' 
             ? 'text-center py-20 border-2 border-dashed border-white/5 rounded-2xl' 
             : 'text-center py-20 border-2 border-dashed border-gray-200 rounded-2xl'
           }>
-            <Receipt className={theme === 'premium-dark' ? 'size-12 mx-auto mb-4 text-white/10' : 'size-12 mx-auto mb-4 text-gray-300'} />
-            <p className={theme === 'premium-dark' ? 'text-white/60' : 'text-gray-500'}>No receipts found</p>
-            <p className={theme === 'premium-dark' ? 'text-sm mt-2 text-purple-300/40' : 'text-sm mt-2 text-gray-400'}>Upload receipts to get started</p>
+            <Receipt className={theme === 'dark' ? 'size-12 mx-auto mb-4 text-white/10' : 'size-12 mx-auto mb-4 text-gray-300'} />
+            <p className={theme === 'dark' ? 'text-white/60' : 'text-gray-500'}>No receipts yet</p>
+            <p className={theme === 'dark' ? 'text-sm mt-2 text-gray-400' : 'text-sm mt-2 text-gray-400'}>
+              Upload your first receipt to get started
+            </p>
+            <Button 
+              onClick={() => setUploadDialogOpen(true)}
+              className="mt-6 bg-[#65D3FD] hover:bg-[#65D3FD]/90 text-black"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Receipt
+            </Button>
           </div>
         ) : (
           <div className="space-y-3">
             {receipts.map((receipt) => (
               <div
                 key={receipt.id}
-                className={theme === 'premium-dark'
+                className={theme === 'dark'
                   ? 'bg-white/[0.03] border border-white/5 rounded-xl p-5 hover:bg-white/[0.05] transition-all'
                   : 'bg-white border border-gray-100 rounded-xl p-5 hover:border-gray-200 hover:shadow-sm transition-all'
                 }
@@ -659,25 +789,25 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                   <Checkbox
                     checked={selectedReceiptIds.has(receipt.id)}
                     onCheckedChange={() => toggleSelectReceipt(receipt.id)}
-                    className={theme === 'premium-dark' ? 'mt-1 border-white/20 data-[state=checked]:bg-white data-[state=checked]:text-black data-[state=checked]:border-white' : 'mt-1'}
+                    className={theme === 'dark' ? 'mt-1 border-white/20 data-[state=checked]:bg-white data-[state=checked]:text-black data-[state=checked]:border-white' : 'mt-1'}
                   />
                   
                   <div className="flex-1 min-w-0">
                     {/* Header Row */}
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="flex items-start gap-3 min-w-0">
-                        <Receipt className={theme === 'premium-dark' ? 'size-5 text-white/20 flex-shrink-0 mt-0.5' : 'size-5 text-gray-300 flex-shrink-0 mt-0.5'} />
+                        <Receipt className={theme === 'dark' ? 'size-5 text-white/20 flex-shrink-0 mt-0.5' : 'size-5 text-gray-300 flex-shrink-0 mt-0.5'} />
                         <div className="min-w-0">
-                          <h3 className={theme === 'premium-dark' ? 'text-sm text-white mb-1' : 'text-sm text-gray-900 mb-1'}>
+                          <h3 className={theme === 'dark' ? 'text-sm text-white mb-1' : 'text-sm text-gray-900 mb-1'}>
                             {receipt.merchant}
                             {getAmount(receipt) === 0 && receipt.merchant === 'Unknown Merchant' && (
                               <span className="ml-2 text-xs text-amber-500">Extraction incomplete</span>
                             )}
                           </h3>
-                          <p className={theme === 'premium-dark' ? 'text-xs text-purple-300/40 truncate' : 'text-xs text-gray-400 truncate'}>
+                          <p className={theme === 'dark' ? 'text-xs text-gray-400 truncate' : 'text-xs text-gray-500 truncate'}>
                             {receipt.fileName}
                             {receipt.source === 'email' && (
-                              <span className={theme === 'premium-dark' ? 'ml-2 text-purple-400' : 'ml-2 text-blue-500'}>
+                              <span className={theme === 'dark' ? 'ml-2 text-[#65D3FD]' : 'ml-2 text-blue-500'}>
                                 <Mail className="size-3 inline-block" /> Via email
                               </span>
                             )}
@@ -687,14 +817,14 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                       
                       <div className="flex items-center gap-3 flex-shrink-0">
                         {getStatusBadge(receipt.status)}
-                        <span className={theme === 'premium-dark' ? 'text-base text-white tracking-tight' : 'text-base text-gray-900 tracking-tight'}>
+                        <span className={theme === 'dark' ? 'text-base text-white tracking-tight' : 'text-base text-gray-900 tracking-tight'}>
                           {formatCurrency(getAmount(receipt))}
                         </span>
                       </div>
                     </div>
 
                     {/* Details Row */}
-                    <div className={theme === 'premium-dark' ? 'flex items-center gap-6 text-xs text-purple-300/40 mb-4 flex-wrap' : 'flex items-center gap-6 text-xs text-gray-400 mb-4 flex-wrap'}>
+                    <div className={theme === 'dark' ? 'flex items-center gap-6 text-xs text-gray-400 mb-4 flex-wrap' : 'flex items-center gap-6 text-xs text-gray-500 mb-4 flex-wrap'}>
                       <span>{formatDate(receipt.date)}</span>
                       <span>{receipt.category}</span>
                       <span>{receipt.paymentMethod}</span>
@@ -706,7 +836,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => toggleExpanded(receipt.id)}
-                        className={theme === 'premium-dark' ? 'text-purple-300/60 hover:text-white hover:bg-white/[0.05] h-8' : 'h-8'}
+                        className={theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-white/[0.05] h-8' : 'h-8'}
                       >
                         <ChevronDown
                           className={`size-4 transition-transform ${
@@ -741,7 +871,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                         variant="ghost" 
                         size="sm" 
                         onClick={() => handleView(receipt)}
-                        className={theme === 'premium-dark' ? 'text-purple-300/60 hover:text-white hover:bg-white/[0.05] h-8' : 'h-8'}
+                        className={theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-white/[0.05] h-8' : 'h-8'}
                       >
                         <Eye className="size-4 mr-1" />
                         View
@@ -751,7 +881,7 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDelete(receipt)}
-                        className={theme === 'premium-dark' ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10 h-8' : 'text-red-600 hover:text-red-700 h-8'}
+                        className={theme === 'dark' ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10 h-8' : 'text-red-600 hover:text-red-700 h-8'}
                       >
                         <Trash2 className="size-4 mr-1" />
                         Delete
@@ -760,18 +890,18 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
 
                     {/* Expandable Details */}
                     {expandedReceiptIds.has(receipt.id) && (
-                      <div className={theme === 'premium-dark' ? 'mt-4 pt-4 border-t border-white/5 space-y-3' : 'mt-4 pt-4 border-t border-gray-100 space-y-3'}>
+                      <div className={theme === 'dark' ? 'mt-4 pt-4 border-t border-white/5 space-y-3' : 'mt-4 pt-4 border-t border-gray-100 space-y-3'}>
                         {/* Line Items */}
                         {receipt.items && receipt.items.length > 0 && (
                           <div className="space-y-1">
-                            <div className={theme === 'premium-dark' ? 'text-xs text-purple-300/40 mb-2' : 'text-xs text-gray-400 mb-2'}>Items</div>
+                            <div className={theme === 'dark' ? 'text-xs text-gray-400 mb-2' : 'text-xs text-gray-500 mb-2'}>Items</div>
                             {receipt.items.map((item, index) => (
                               <div key={index} className="flex justify-between text-sm">
-                                <span className={theme === 'premium-dark' ? 'text-purple-300/60' : 'text-gray-600'}>
+                                <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
                                   {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
                                   {item.description}
                                 </span>
-                                <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(item.amount)}</span>
+                                <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(item.amount)}</span>
                               </div>
                             ))}
                           </div>
@@ -781,31 +911,31 @@ export function ReceiptExtraction({ companyId }: ReceiptExtractionProps) {
                         {getTax(receipt) > 0 && (
                           <div className="space-y-1">
                             <div className="flex justify-between text-sm">
-                              <span className={theme === 'premium-dark' ? 'text-purple-300/40' : 'text-gray-400'}>
+                              <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}>
                                 Tax {receipt.taxRate ? `(${(receipt.taxRate * 100).toFixed(1)}%)` : ''}
                               </span>
-                              <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(getTax(receipt))}</span>
+                              <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(getTax(receipt))}</span>
                             </div>
-                            <div className={theme === 'premium-dark' ? 'flex justify-between text-sm pt-2 border-t border-white/5' : 'flex justify-between text-sm pt-2 border-t border-gray-100'}>
-                              <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>Total</span>
-                              <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(getAmount(receipt))}</span>
+                            <div className={theme === 'dark' ? 'flex justify-between text-sm pt-2 border-t border-white/5' : 'flex justify-between text-sm pt-2 border-t border-gray-100'}>
+                              <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>Total</span>
+                              <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{formatCurrency(getAmount(receipt))}</span>
                             </div>
                           </div>
                         )}
                         
                         {/* Email Details */}
                         {receipt.source === 'email' && receipt.emailFrom && (
-                          <div className={theme === 'premium-dark' ? 'pt-3 border-t border-white/5' : 'pt-3 border-t border-gray-100'}>
-                            <div className={theme === 'premium-dark' ? 'text-xs text-purple-300/40 mb-2' : 'text-xs text-gray-400 mb-2'}>Email Details</div>
+                          <div className={theme === 'dark' ? 'pt-3 border-t border-white/5' : 'pt-3 border-t border-gray-100'}>
+                            <div className={theme === 'dark' ? 'text-xs text-gray-400 mb-2' : 'text-xs text-gray-500 mb-2'}>Email Details</div>
                             <div className="space-y-1 text-sm">
                               <div className="flex items-center gap-2">
-                                <span className={theme === 'premium-dark' ? 'text-purple-300/40 w-20' : 'text-gray-400 w-20'}>From</span>
-                                <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>{receipt.emailFrom}</span>
+                                <span className={theme === 'dark' ? 'text-gray-400 w-20' : 'text-gray-500 w-20'}>From</span>
+                                <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{receipt.emailFrom}</span>
                               </div>
                               {receipt.emailSubject && (
                                 <div className="flex items-center gap-2">
-                                  <span className={theme === 'premium-dark' ? 'text-purple-300/40 w-20' : 'text-gray-400 w-20'}>Subject</span>
-                                  <span className={theme === 'premium-dark' ? 'text-white' : 'text-gray-900'}>{receipt.emailSubject}</span>
+                                  <span className={theme === 'dark' ? 'text-gray-400 w-20' : 'text-gray-500 w-20'}>Subject</span>
+                                  <span className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{receipt.emailSubject}</span>
                                 </div>
                               )}
                             </div>

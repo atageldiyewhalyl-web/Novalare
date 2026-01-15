@@ -611,7 +611,7 @@ export function CCReconciliation() {
                                           </Badge>
                                         )}
                                       </td>
-                                      <td className={`px-4 py-3 text-right ${txn.amount < 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                                      <td className={`px-4 py-3 text-right font-medium ${txn.amount < 0 ? 'text-red-600' : 'text-green-600'}`}>
                                         ${formatCurrency(Math.abs(txn.amount))}
                                       </td>
                                     </tr>

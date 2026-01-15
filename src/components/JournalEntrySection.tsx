@@ -17,9 +17,7 @@ export function JournalEntrySection() {
   const [currentExample, setCurrentExample] = useState(0);
   const [displayedText, setDisplayedText] = useState("");
   const [showEntry, setShowEntry] = useState(false);
-  const [currentLanguage, setCurrentLanguage] = useState(0);
-
-  const languages = ["English", "German", "Russian", "Italian", "French"];
+  const [nextExample, setNextExample] = useState<number | null>(null);
 
   const examples: Example[] = [
     {
@@ -51,9 +49,8 @@ export function JournalEntrySection() {
     const currentInput = examples[currentExample].input;
     let charIndex = 0;
 
-    // Reset states
+    // Only reset text, keep previous entry visible
     setDisplayedText("");
-    setShowEntry(false);
 
     // Typing animation
     const typingInterval = setInterval(() => {
@@ -62,14 +59,17 @@ export function JournalEntrySection() {
         charIndex++;
       } else {
         clearInterval(typingInterval);
-        // Show journal entry after typing completes
+        // Show new journal entry after typing completes
         setTimeout(() => setShowEntry(true), 300);
       }
     }, 50);
 
     // Cycle to next example
     const cycleTimeout = setTimeout(() => {
-      setCurrentExample((prev) => (prev + 1) % examples.length);
+      setShowEntry(false); // Hide current entry just before cycling
+      setTimeout(() => {
+        setCurrentExample((prev) => (prev + 1) % examples.length);
+      }, 400); // Small delay to let fade out complete
     }, 6000);
 
     return () => {
@@ -77,19 +77,6 @@ export function JournalEntrySection() {
       clearTimeout(cycleTimeout);
     };
   }, [isInView, currentExample]);
-
-  // Language cycling effect
-  useEffect(() => {
-    if (!isInView) return;
-
-    const languageInterval = setInterval(() => {
-      setCurrentLanguage((prev) => (prev + 1) % languages.length);
-    }, 2500); // Change language every 2.5 seconds
-
-    return () => {
-      clearInterval(languageInterval);
-    };
-  }, [isInView]);
 
   const currentEntry = examples[currentExample].entry;
 
@@ -104,24 +91,7 @@ export function JournalEntrySection() {
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-8xl font-bold text-white mb-4 md:mb-6 tracking-tight leading-none">
             Just type
             <br />
-            <span className="relative inline-block">
-              in plain{" "}
-              <span className="relative inline-block min-w-[180px] sm:min-w-[240px] md:min-w-[280px] lg:min-w-[400px]">
-                <AnimatePresence mode="wait">
-                  <motion.span
-                    key={languages[currentLanguage]}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.5, ease: "easeInOut" }}
-                    className="absolute left-0 top-0 w-full text-center"
-                  >
-                    {languages[currentLanguage]}
-                  </motion.span>
-                </AnimatePresence>
-                <span className="opacity-0">{languages[currentLanguage]}</span>
-              </span>
-            </span>
+            in plain English
           </h1>
           <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-gray-500 max-w-3xl mx-auto leading-relaxed px-4 md:px-0">
             No forms. No dropdowns. No accounting jargon required.
@@ -239,15 +209,6 @@ export function JournalEntrySection() {
               </div>
             </div>
           </motion.div>
-        </div>
-
-        {/* Bottom text */}
-        <div className="text-center mt-12 md:mt-20">
-          <p className="text-gray-600 text-base md:text-lg px-4 md:px-0">
-            Our AI understands context, amounts, and accounting rules.
-            <br className="hidden sm:block" />
-            <span className="sm:inline block mt-1 sm:mt-0 text-gray-500">No training needed.</span>
-          </p>
         </div>
       </div>
     </section>

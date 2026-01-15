@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Capital One Template Diagnostic Tool</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4ec9b0;
+        }
+        .upload-section {
+            background: #252526;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            background: #3c3c3c;
+            color: #d4d4d4;
+            padding: 10px;
+            border: 1px solid #454545;
+            border-radius: 4px;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        .results {
+            background: #252526;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .row {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #2d2d30;
+            border-left: 3px solid #007acc;
+            font-size: 12px;
+        }
+        .row-header {
+            color: #608b4e;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .word {
+            display: inline-block;
+            margin: 2px 0;
+            padding: 2px 4px;
+            background: #3c3c3c;
+            border-radius: 2px;
+        }
+        .word-text {
+            color: #ce9178;
+        }
+        .word-x {
+            color: #4ec9b0;
+            margin-left: 5px;
+        }
+        .template-info {
+            background: #1e3a1e;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 3px solid #4ec9b0;
+        }
+        .error {
+            background: #3a1e1e;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 3px solid #f48771;
+            color: #f48771;
+        }
+        .loading {
+            color: #4ec9b0;
+            font-size: 16px;
+        }
+        .ruler {
+            margin: 20px 0;
+            position: relative;
+            height: 30px;
+            background: linear-gradient(to right, 
+                #f00 0%, #f00 100px,
+                #ff0 100px, #ff0 580px,
+                #0f0 660px, #0f0 760px,
+                #00f 800px, #00f 900px
+            );
+            opacity: 0.3;
+        }
+        .ruler-label {
+            position: absolute;
+            top: 35px;
+            font-size: 10px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Capital One Template Diagnostic Tool</h1>
+        
+        <div class="upload-section">
+            <h3>Step 1: Upload Capital One PDF</h3>
+            <input type="file" id="fileInput" accept=".pdf">
+            <button onclick="diagnosePDF()">Diagnose Column Positions</button>
+        </div>
+
+        <div id="templateInfo"></div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:8000';
+
+        async function diagnosePDF() {
+            const fileInput = document.getElementById('fileInput');
+            const resultsDiv = document.getElementById('results');
+            const templateDiv = document.getElementById('templateInfo');
+            
+            if (!fileInput.files.length) {
+                resultsDiv.innerHTML = '<div class="error">Please select a PDF file first</div>';
+                return;
+            }
+
+            resultsDiv.innerHTML = '<div class="loading">⏳ Analyzing PDF structure...</div>';
+            templateDiv.innerHTML = '';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch(`${API_URL}/diagnose-columns`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    resultsDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+
+                // Show current template
+                if (data.current_template) {
+                    const template = data.current_template;
+                    templateDiv.innerHTML = `
+                        <div class="template-info">
+                            <h3>✅ Detected Bank: ${template.bank_name}</h3>
+                            <h4>Current Template Columns:</h4>
+                            <pre>Date:        x=${template.columns.date.x_min} to ${template.columns.date.x_max}
+Description: x=${template.columns.description.x_min} to ${template.columns.description.x_max}
+Amount:      x=${template.columns.amount.x_min} to ${template.columns.amount.x_max}
+Balance:     x=${template.columns.balance.x_min} to ${template.columns.balance.x_max}</pre>
+                            <div class="ruler">
+                                <div class="ruler-label" style="left: 100px">Desc Start (110)</div>
+                                <div class="ruler-label" style="left: 580px">Desc End (580)</div>
+                                <div class="ruler-label" style="left: 660px">Amount (660)</div>
+                                <div class="ruler-label" style="left: 800px">Balance (800)</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Show rows with actual coordinates
+                let html = `
+                    <div class="results">
+                        <h3>📊 Actual PDF Structure (${data.rows.length} rows)</h3>
+                        <p><strong>Instructions:</strong> Look at the x0 values for amount and balance fields. If they don't match the template above, we need to update the template.</p>
+                `;
+
+                data.rows.forEach(row => {
+                    html += `
+                        <div class="row">
+                            <div class="row-header">Row ${row.row_num} (y=${row.y_position})</div>
+                            <div><strong>Full text:</strong> ${row.full_text}</div>
+                            <div style="margin-top: 5px;">
+                    `;
+
+                    row.words.forEach(word => {
+                        // Highlight potential amount/balance fields
+                        let bgColor = '#3c3c3c';
+                        if (word.x0 >= 660 && word.x0 <= 760) {
+                            bgColor = '#2d5016'; // Green for amount range
+                        } else if (word.x0 >= 800 && word.x0 <= 900) {
+                            bgColor = '#1e3a5f'; // Blue for balance range
+                        }
+
+                        html += `
+                            <div class="word" style="background: ${bgColor}">
+                                <span class="word-text">"${word.text}"</span>
+                                <span class="word-x">@ x=${word.x0}</span>
+                            </div>
+                        `;
+                    });
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

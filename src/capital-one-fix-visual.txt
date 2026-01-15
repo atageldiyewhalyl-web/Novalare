@@ -1,0 +1,76 @@
+
+═══════════════════════════════════════════════════════════════════════
+                  CAPITAL ONE TEMPLATE FIX - VISUAL
+═══════════════════════════════════════════════════════════════════════
+
+ACTUAL PDF LAYOUT (from your image):
+┌────────────────────────────────────────────────────────────────────┐
+│ DATE    DESCRIPTION                         CATEGORY   AMOUNT  BALANCE│
+│ ----    -----------                         --------   ------  -------│
+│ Apr 1   Zelle money received from MUHAMMED             +$3,000.00  $189,832.04│
+│  ↑ 73px  ↑ 128px                            ↑ 430px    ↑ 515px  ↑ 645px     │
+└────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+
+OLD TEMPLATE (WRONG):
+┌────────────────────────────────────────────────────────────────────┐
+│   40      110                    580                 660     800    │
+│   ↓       ↓                      ↓                   ↓       ↓      │
+│ [DATE] [DESCRIPTION················] ❌ EMPTY ❌ [AMOUNT] [BALANCE]│
+│                                                                      │
+│ PROBLEM: Amount at 515px falls in "EMPTY" zone (580-660)!          │
+│          System looked at x=660 and found nothing → amount=None     │
+└────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+
+NEW TEMPLATE (CORRECT):
+┌────────────────────────────────────────────────────────────────────┐
+│   70      125                    500  510     580   640     710     │
+│   ↓       ↓                      ↓    ↓       ↓     ↓       ↓       │
+│ [DATE] [DESCRIPTION················][AMOUNT······][BALANCE····]    │
+│                                                                      │
+│ ✅ Amount at 515px now falls in AMOUNT zone (510-580)!              │
+│ ✅ Balance at 645px now falls in BALANCE zone (640-710)!            │
+│ ✅ Description ends at 500px (before amount starts at 510px)        │
+└────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+
+EXTRACTION COMPARISON:
+
+BEFORE FIX:
+Row 21: date=None | amount=1→1.0 | desc=Page | balance=None→None
+        ↑ Wrong!    ↑ Footer "1"   ↑ Footer    ↑ Missing!
+        
+🔍 Result: 3 transactions extracted (all footer "Page X" lines)
+
+───────────────────────────────────────────────────────────────────────
+
+AFTER FIX (Expected):
+Row 4: date=Apr 1 | amount=+$3,000.00→3000.0 | desc=Zelle money received... | balance=$189,832.04→189832.04
+       ↑ Correct!   ↑ Correct!                  ↑ Correct!                    ↑ Correct!
+       
+✅ Result: 30+ real transactions extracted!
+
+═══════════════════════════════════════════════════════════════════════
+
+KEY CHANGES:
+
+1. Amount column: 660-760 → 510-580  (moved LEFT by 150px)
+2. Balance column: 800-900 → 640-710  (moved LEFT by 160px)
+3. Description end: 580 → 500  (shortened to avoid overlap)
+4. Date format: "MMM DD" → "MMM D"  (supports "Apr 1" not just "Apr 01")
+5. Added month name parser: Recognizes "Apr", "Jan", etc.
+
+═══════════════════════════════════════════════════════════════════════
+
+TEST NOW:
+
+curl -X POST http://127.0.0.1:8000/extract-with-schema \
+  -F "file=@/Users/halyl.atageldiyev/Downloads/statement (5).pdf" \
+  -F "auto_discover=false" \
+| python3 -m json.tool
+
+═══════════════════════════════════════════════════════════════════════

@@ -1,0 +1,56 @@
+{
+  "bank_key": "capital_one",
+  "bank_name": "Capital One",
+  "version": "1.1",
+  "created_by": "system",
+  "last_updated": "2024-12-22",
+  "description": "Capital One 360 Checking - supports 'Apr 1' date format with running balance",
+  
+  "statement_model": "running_balance",
+  "currency": "USD",
+  
+  "columns": {
+    "date": {
+      "x_min": 70,
+      "x_max": 105,
+      "note": "Month name format: 'Apr 1', 'Jan 15'"
+    },
+    "description": {
+      "x_min": 125,
+      "x_max": 500,
+      "note": "Full transaction description before amount"
+    },
+    "amount": {
+      "x_min": 510,
+      "x_max": 580,
+      "note": "Signed amounts: +$3,000.00 or -$2,000.00"
+    },
+    "balance": {
+      "x_min": 640,
+      "x_max": 710,
+      "note": "Running balance after transaction"
+    }
+  },
+  
+  "transaction_start_markers": [
+    "DATE",
+    "DESCRIPTION",
+    "Date Description"
+  ],
+  
+  "date_format": "MMM D",
+  "has_balance_column": true,
+  "multiline_descriptions": false,
+  
+  "detection_keywords": [
+    "capital one",
+    "capitalone",
+    "capital one 360"
+  ],
+  
+  "notes": [
+    "Fixed 2024-12-22: Moved amount column from 660px to 510px (was 150px off)",
+    "Added support for month name dates (Apr 1, not 04/01)",
+    "Category column exists but not extracted (430-488px)"
+  ]
+}

@@ -1,0 +1,84 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║               🚀 DEPLOY TO RENDER.COM - QUICK START                          ║
+║                  Escape Local Environment Hell!                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+STEP 1: Push Code to GitHub
+───────────────────────────────────────────────────────────────────────────────
+cd novalare-extraction-api
+git add .
+git commit -m "Add AI-enhanced extraction API"
+git push origin main
+
+
+STEP 2: Deploy on Render.com
+───────────────────────────────────────────────────────────────────────────────
+1. Go to https://render.com
+2. Sign in (or create free account)
+3. Click "New +" → "Web Service"
+4. Connect GitHub → Select "novalare-extraction-api"
+5. Configure:
+   
+   Name:              novalare-extraction-api
+   Root Directory:    python-extraction-server
+   Build Command:     pip install -r requirements.txt
+   Start Command:     python app.py
+   Plan:              Free (or Starter $7/month)
+   
+6. Add Environment Variables:
+   
+   OPENAI_API_KEY = sk-proj-YOUR_KEY_HERE
+   PYTHON_VERSION = 3.11.0
+   PORT = 8000
+
+7. Click "Create Web Service"
+
+
+STEP 3: Wait for Deployment (5 minutes)
+───────────────────────────────────────────────────────────────────────────────
+Render will:
+  ✅ Clone your repo
+  ✅ Install dependencies
+  ✅ Start the server
+  ✅ Give you a URL like: https://novalare-extraction-api.onrender.com
+
+
+STEP 4: Test It!
+───────────────────────────────────────────────────────────────────────────────
+# Health check
+curl https://novalare-extraction-api.onrender.com/health
+
+# AI discovery
+curl -X POST https://novalare-extraction-api.onrender.com/discover-layout \
+  -F "file=@statement.pdf"
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                              DONE! 🎉                                        ║
+║                                                                              ║
+║  Your API is live and will extract 30+ transactions from Capital One        ║
+║  No proxies. No local env issues. Just works.™                              ║
+║                                                                              ║
+║  Read RENDER_DEPLOYMENT_GUIDE.md for full details                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+BENEFITS:
+  ✅ No proxy errors
+  ✅ No local environment conflicts  
+  ✅ Auto-deployment on git push
+  ✅ Free SSL certificate
+  ✅ Always accessible
+  ✅ Scales automatically
+
+
+COST:
+  Free Plan:     $0/month (sleeps after 15 min)
+  Starter Plan:  $7/month (always on, recommended)
+
+
+NEXT STEPS:
+  1. Update your frontend to use Render URL
+  2. Test with real PDFs
+  3. Monitor logs in Render dashboard
+  4. Celebrate! 🎉

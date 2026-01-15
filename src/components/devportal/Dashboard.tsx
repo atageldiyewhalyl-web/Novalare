@@ -5,6 +5,9 @@ import { useEffect, useState } from 'react';
 import { companiesApi, invoicesApi, receiptsApi, Company, Invoice, Receipt } from '@/utils/api-client';
 import { AddCompanyDialog } from './AddCompanyDialog';
 import { useTheme } from '@/contexts/ThemeContext';
+import { StatisticsSection } from '../StatisticsSection';
+import { CompanySkeleton } from '../CompanySkeleton';
+import { checkBackendHealth } from '@/utils/backend-health-check';
 
 interface DashboardProps {
   onNavigate: (view: string, params?: any) => void;
@@ -22,6 +25,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
+    // Start loading data immediately - no health check delay
     loadData();
     
     // Auto-refresh every 30 seconds to catch new emails
@@ -36,15 +40,38 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     try {
       setLoading(true);
       setError(null);
+      
+      // OPTIMIZATION: Load companies first, show immediately
       const companiesData = await companiesApi.getAll();
       
-      // Load pending counts for each company
+      // Show companies immediately with 0 pending counts
+      const companiesInitial = companiesData.map(company => ({
+        ...company,
+        pendingCount: 0,
+      }));
+      setCompanies(companiesInitial);
+      setLoading(false); // Stop loading immediately after companies load
+      
+      // Then load pending counts in the background (non-blocking)
+      loadPendingCounts(companiesData);
+      
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setLoading(false);
+    }
+  };
+  
+  // Separate function to load pending counts in background
+  const loadPendingCounts = async (companiesData: Company[]) => {
+    try {
+      // Load pending counts for each company in parallel
       const companiesWithCounts = await Promise.all(
         companiesData.map(async (company) => {
           try {
             const [invoices, receipts] = await Promise.all([
-              invoicesApi.getByCompany(company.id),
-              receiptsApi.getByCompany(company.id),
+              invoicesApi.getByCompany(company.id).catch(() => []),
+              receiptsApi.getByCompany(company.id).catch(() => []),
             ]);
             
             const pendingInvoices = invoices.filter(inv => inv.status === 'Pending').length;
@@ -54,8 +81,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               ...company,
               pendingCount: pendingInvoices + pendingReceipts,
             };
-          } catch (err) {
-            console.error(`Failed to load pending count for company ${company.id}:`, err);
+          } catch {
             return {
               ...company,
               pendingCount: 0,
@@ -64,26 +90,33 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         })
       );
       
+      // Update with actual pending counts
       setCompanies(companiesWithCounts);
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setLoading(false);
+      console.error('Failed to load pending counts:', err);
+      // Don't show error to user - companies are already displayed
     }
   };
   
   // Silent refresh without showing loading spinner
   const loadDataSilently = async () => {
     try {
+      // console.log('🔄 Starting silent dashboard refresh...');
       const companiesData = await companiesApi.getAll();
+      // console.log('✅ Companies loaded:', companiesData?.length || 0);
       
       const companiesWithCounts = await Promise.all(
         companiesData.map(async (company) => {
           try {
             const [invoices, receipts] = await Promise.all([
-              invoicesApi.getByCompany(company.id),
-              receiptsApi.getByCompany(company.id),
+              invoicesApi.getByCompany(company.id).catch(err => {
+                // Silently handle temporary API unavailability during startup
+                return [];
+              }),
+              receiptsApi.getByCompany(company.id).catch(err => {
+                // Silently handle temporary API unavailability during startup
+                return [];
+              }),
             ]);
             
             const pendingInvoices = invoices.filter(inv => inv.status === 'Pending').length;
@@ -93,7 +126,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               ...company,
               pendingCount: pendingInvoices + pendingReceipts,
             };
-          } catch (err) {
+          } catch {
+            // Silently handle errors for individual companies
             return {
               ...company,
               pendingCount: 0,
@@ -103,9 +137,24 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       );
       
       setCompanies(companiesWithCounts);
-      console.log('✅ Dashboard auto-refreshed');
+      // console.log('✅ Dashboard auto-refreshed');
     } catch (err) {
+      // Check if this is a server connectivity error
+      if (err instanceof Error && err.message.includes('Cannot connect to server')) {
+        console.warn('⚠️ Dashboard refresh skipped - backend server not available');
+        // Don't log full error details for server connectivity issues
+        return;
+      }
+      
+      // Check if this is an auth error
+      if (err instanceof Error && err.message.includes('Unauthorized')) {
+        console.log('🔒 Dashboard refresh skipped - user not authenticated');
+        // Don't log error stack for expected auth failures
+        return;
+      }
+      
       console.error('Failed to auto-refresh dashboard:', err);
+      // Don't show error to user for background refresh failures
     }
   };
   
@@ -118,14 +167,30 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <div className={theme === 'premium-dark' 
-            ? 'w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4' 
-            : 'w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4'
-          }></div>
-          <p className={theme === 'premium-dark' ? 'text-purple-200' : 'text-gray-600'}>Loading dashboard...</p>
+      <div className="max-w-7xl mx-auto space-y-12">
+        {/* Header - Shows immediately */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className={theme === 'premium-dark' ? 'text-4xl text-white tracking-tight' : 'text-4xl text-gray-900 tracking-tight'}>Your Companies</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="icon"
+              disabled
+              className={theme === 'premium-dark'
+                ? 'bg-white/5 border-white/10'
+                : 'border-gray-200'
+              }
+            >
+              <RefreshCw className={`size-4 ${theme === 'premium-dark' ? 'text-purple-300' : 'text-gray-600'}`} />
+            </Button>
+            <AddCompanyDialog onSuccess={loadData} />
+          </div>
         </div>
+
+        {/* Skeleton Grid - Shows immediately */}
+        <CompanySkeleton />
       </div>
     );
   }
@@ -175,8 +240,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               key={company.id}
               onClick={() => onNavigate('company', { companyId: company.id })}
               className={theme === 'premium-dark'
-                ? 'group relative text-left bg-gradient-to-br from-white/[0.07] to-white/[0.03] border border-white/10 backdrop-blur-xl rounded-2xl p-6 hover:border-purple-500/40 transition-all duration-300 hover:shadow-[0_20px_60px_-15px_rgba(139,92,246,0.4)] hover:scale-[1.02]'
-                : 'group relative text-left bg-white border border-gray-200 rounded-2xl p-6 hover:border-gray-300 hover:shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] transition-all duration-300 hover:scale-[1.02]'
+                ? 'group relative text-left bg-gradient-to-br from-white/[0.07] to-white/[0.03] border border-white/10 backdrop-blur-xl rounded-2xl p-6 hover:border-purple-500/40 transition-all duration-150 hover:shadow-[0_20px_60px_-15px_rgba(139,92,246,0.4)] hover:scale-[1.01]'
+                : 'group relative text-left bg-white border border-gray-200 rounded-2xl p-6 hover:border-gray-300 hover:shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] transition-all duration-150 hover:scale-[1.01]'
               }
             >
               {/* Notification Badge - Yellow Dot */}
@@ -250,6 +315,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
         )}
       </div>
+
+      {/* Statistics Section */}
+      <StatisticsSection companies={companies} />
     </div>
   );
 }

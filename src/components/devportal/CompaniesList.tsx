@@ -6,6 +6,9 @@ import { useEffect, useState } from 'react';
 import { companiesApi, settingsApi, Company, Settings } from '@/utils/api-client';
 import { AddCompanyDialog } from './AddCompanyDialog';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { projectId } from '@/utils/supabase/info';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +34,7 @@ interface CompaniesListProps {
 
 export function CompaniesList({ onNavigate }: CompaniesListProps) {
   const { theme } = useTheme();
+  const { session } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +42,7 @@ export function CompaniesList({ onNavigate }: CompaniesListProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     loadData();
@@ -47,11 +52,41 @@ export function CompaniesList({ onNavigate }: CompaniesListProps) {
     try {
       setLoading(true);
       setError(null);
+      
+      // Load both manual companies AND QuickBooks-synced companies
       const [companiesData, settingsData] = await Promise.all([
         companiesApi.getAll(),
         settingsApi.get(),
       ]);
-      setCompanies(companiesData);
+      
+      // Load QuickBooks companies from backend
+      let qbCompanies: Company[] = [];
+      if (session?.access_token) {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/companies/list`,
+            {
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            qbCompanies = data.companies || [];
+          }
+        } catch (err) {
+          console.error('Failed to load QB companies:', err);
+          // Don't fail the whole page, just skip QB companies
+        }
+      }
+      
+      // Merge manual and QB companies
+      const allCompanies = [...companiesData, ...qbCompanies];
+      
+      setCompanies(allCompanies);
       setSettings(settingsData);
     } catch (err) {
       console.error('Failed to load companies:', err);
@@ -78,6 +113,10 @@ export function CompaniesList({ onNavigate }: CompaniesListProps) {
     setIsDeleting(true);
     try {
       await companiesApi.delete(companyToDelete.id);
+      
+      // Invalidate companies cache to trigger refetch
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      
       toast.success(`${companyToDelete.name} has been deleted`);
       loadData();
     } catch (err) {
@@ -94,11 +133,8 @@ export function CompaniesList({ onNavigate }: CompaniesListProps) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <div className={theme === 'premium-dark' 
-            ? 'w-12 h-12 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4' 
-            : 'w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4'
-          }></div>
-          <p className={theme === 'premium-dark' ? 'text-purple-200' : 'text-gray-600'}>Loading companies...</p>
+          <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading companies...</p>
         </div>
       </div>
     );

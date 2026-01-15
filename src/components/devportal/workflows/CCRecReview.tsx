@@ -893,8 +893,8 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <Loader2 className="size-8 text-gray-400 animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-500">Loading CC reconciliation data...</p>
+          <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading CC reconciliation data...</p>
         </div>
       </div>
     );
@@ -1037,25 +1037,27 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
         </TabsList>
 
         {/* Tab 1: Needs Attention */}
-        <TabsContent value="needs-attention" className="space-y-6">
-          {/* Unmatched CC Transactions */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="size-5 text-red-600" />
-                    Unmatched Credit Card Transactions
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These transactions appear in credit card statements but have no matching ledger entries.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                  {unmatchedCCItems.length} items
-                </Badge>
-              </div>
-            </CardHeader>
+        <TabsContent value="needs-attention" className="h-[calc(100vh-400px)]">
+          <div className="grid grid-cols-2 gap-4 h-full overflow-hidden">
+            {/* Left Column: Unmatched CC Transactions */}
+            <div className="overflow-y-auto pr-2 overscroll-contain h-full">
+              <Card className="h-fit">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="size-5 text-red-600" />
+                        Unmatched Credit Card Transactions
+                      </CardTitle>
+                      <CardDescription className="mt-2">
+                        These transactions appear in credit card statements but have no matching ledger entries.
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                      {unmatchedCCItems.length} items
+                    </Badge>
+                  </div>
+                </CardHeader>
             <CardContent>
               {unmatchedCCItems && unmatchedCCItems.length > 0 ? (
                 <div className="space-y-3">
@@ -1070,9 +1072,6 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
                           {item.transaction.merchant && (
                             <p className="text-xs text-gray-600">Merchant: {item.transaction.merchant}</p>
                           )}
-                          <p className="text-xs text-gray-600 mt-1">
-                            Suggested Action: {item.suggested_action}
-                          </p>
                         </div>
                         <div className="ml-4">
                           <div className={`text-2xl font-medium ${item.transaction.amount < 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -1090,7 +1089,7 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
                           disabled={isMonthLocked}
                         >
                           <ThumbsUp className="size-3.5" />
-                          Approve for JE
+                          Prepare Journal Entry
                         </Button>
                         <Button
                           size="sm"
@@ -1120,16 +1119,16 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleOpenFollowUpDialog(item, 'cc')}>
+                            <DropdownMenuItem key="request-info" onClick={() => handleOpenFollowUpDialog(item, 'cc')}>
                               <MessageSquare className="size-4 mr-2" />
                               Request Information
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleMarkAsTimingDifference(item, 'cc')}>
+                            <DropdownMenuItem key="timing-diff" onClick={() => handleMarkAsTimingDifference(item, 'cc')}>
                               <Clock className="size-4 mr-2" />
                               Mark as Timing Difference
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleMarkAsIgnored(item, 'cc')}>
+                            <DropdownMenuItem key="mark-ignored" onClick={() => handleMarkAsIgnored(item, 'cc')}>
                               <EyeOff className="size-4 mr-2" />
                               Mark as Non-Issue
                             </DropdownMenuItem>
@@ -1147,25 +1146,27 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
               )}
             </CardContent>
           </Card>
+            </div>
 
-          {/* Unmatched Ledger Entries */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <BookOpen className="size-5 text-amber-600" />
-                    Unmatched Ledger Entries
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These entries appear in the general ledger but have no matching credit card transactions.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                  {unmatchedLedgerItems.length} items
-                </Badge>
-              </div>
-            </CardHeader>
+            {/* Right Column: Unmatched Ledger Entries */}
+            <div className="overflow-y-auto pl-2 overscroll-contain h-full">
+              <Card className="h-fit">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <BookOpen className="size-5 text-amber-600" />
+                        Unmatched Ledger Entries
+                      </CardTitle>
+                      <CardDescription className="mt-2">
+                        These entries appear in the general ledger but have no matching credit card transactions.
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                      {unmatchedLedgerItems.length} items
+                    </Badge>
+                  </div>
+                </CardHeader>
             <CardContent>
               {unmatchedLedgerItems && unmatchedLedgerItems.length > 0 ? (
                 <div className="space-y-3">
@@ -1177,9 +1178,6 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
                             <span className="font-medium text-gray-900">{getLedgerDescription(item.entry)}</span>
                             <span className="text-xs text-gray-500">{item.entry.date}</span>
                           </div>
-                          <p className="text-xs text-gray-600">
-                            Suggested Action: {item.action}
-                          </p>
                           {(item.entry.glAccount || item.entry.account) && (
                             <p className="text-xs text-gray-600">
                               Account: {item.entry.glAccount || item.entry.account}
@@ -1242,16 +1240,16 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleOpenFollowUpDialog(item, 'ledger')}>
+                            <DropdownMenuItem key="request-info-ledger" onClick={() => handleOpenFollowUpDialog(item, 'ledger')}>
                               <MessageSquare className="size-4 mr-2" />
                               Request Information
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleMarkAsTimingDifference(item, 'ledger')}>
+                            <DropdownMenuItem key="timing-diff-ledger" onClick={() => handleMarkAsTimingDifference(item, 'ledger')}>
                               <Clock className="size-4 mr-2" />
                               Mark as Timing Difference
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleMarkAsIgnored(item, 'ledger')}>
+                            <DropdownMenuItem key="mark-ignored-ledger" onClick={() => handleMarkAsIgnored(item, 'ledger')}>
                               <EyeOff className="size-4 mr-2" />
                               Mark as Non-Issue
                             </DropdownMenuItem>
@@ -1269,6 +1267,8 @@ export function CCRecReview({ companyId, companyName, period, onBack }: CCRecRev
               )}
             </CardContent>
           </Card>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Tab 2: Follow-Up Needed */}

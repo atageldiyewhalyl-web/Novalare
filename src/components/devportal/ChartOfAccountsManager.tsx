@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useDebounce } from '@/hooks/useDebounce';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function ChartOfAccountsManager({ companyId, companyName }: ChartOfAccoun
   });
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300); // Debounce search by 300ms
   const [showTemplates, setShowTemplates] = useState(false);
 
   useEffect(() => {
@@ -193,9 +195,9 @@ export function ChartOfAccountsManager({ companyId, companyName }: ChartOfAccoun
   const filteredAccounts = accounts.filter(acc => {
     const matchesType = filterType === 'all' || acc.type === filterType;
     const matchesSearch = 
-      acc.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      acc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (acc.description && acc.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      acc.code.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      acc.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      (acc.description && acc.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase()));
     return matchesType && matchesSearch;
   });
 

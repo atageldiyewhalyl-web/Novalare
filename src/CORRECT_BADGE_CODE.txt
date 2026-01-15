@@ -1,0 +1,24 @@
+Replace lines 1502-1512 in APReconciliation.tsx with this:
+
+                                     <td className="py-4 px-6">
+                                       <Badge 
+                                         variant="outline" 
+                                         className={
+                                           match.match_type === 'exact_match' 
+                                             ? 'bg-violet-50 text-violet-700 border-violet-200' 
+                                             : match.match_type === 'fx_tolerance'
+                                             ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                             : match.match_type === 'one_to_many'
+                                             ? 'bg-green-50 text-green-700 border-green-200'
+                                             : match.match_type === 'many_to_one'
+                                             ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                             : 'bg-gray-50 text-gray-600 border-gray-200'
+                                         }
+                                       >
+                                         {match.match_type === 'exact_match' ? 'exact' 
+                                           : match.match_type === 'fx_tolerance' ? 'Tolerance'
+                                           : match.match_type === 'one_to_many' ? '1:many'
+                                           : match.match_type === 'many_to_one' ? `${(match.additional_vendor_transactions?.length || 0) + 1}:1`
+                                           : match.match_type}
+                                       </Badge>
+                                     </td>

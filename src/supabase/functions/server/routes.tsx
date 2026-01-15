@@ -3,7 +3,7 @@ import * as kv from './kv_store.tsx';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { classifyDocument, extractReceiptData, extractInvoiceData } from './document-processor.tsx';
 
-const app = new Hono().basePath('/make-server-53c2e113');
+const app = new Hono().basePath('/make-server-53c2e113');  // Add basePath to match other routes
 
 // Initialize Supabase client for storage
 const supabase = createClient(
@@ -12,6 +12,90 @@ const supabase = createClient(
 );
 
 const BUCKET_NAME = 'make-53c2e113-documents';
+
+// ============================================
+// AUTH CACHE - Performance Optimization
+// ============================================
+const userCache = new Map<string, { firmId: string; timestamp: number }>();
+const CACHE_DURATION = 5000; // 5 seconds
+
+async function getFirmIdFromToken(token: string): Promise<string> {
+  // Check cache first
+  const cached = userCache.get(token);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    return cached.firmId;
+  }
+  
+  // Fetch from database
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (user && !error) {
+      const userData = await kv.get(`user:${user.id}`);
+      if (userData?.firm_id) {
+        // Cache the result
+        userCache.set(token, { firmId: userData.firm_id, timestamp: Date.now() });
+        return userData.firm_id;
+      }
+    }
+  } catch (error) {
+    console.log('⚠️ Not authenticated or token invalid');
+  }
+  
+  // Default firm for backward compatibility
+  return 'default-firm-halyl';
+}
+
+// ============================================
+// RECENTLY VIEWED COMPANIES - User-Specific
+// ============================================
+
+/**
+ * GET /api/users/:userId/recent-companies
+ * Get recently viewed companies for a user
+ */
+app.get('/api/users/:userId/recent-companies', async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const recentCompanies = await kv.get(`user:${userId}:recent_companies`) || [];
+    
+    return c.json({ recentCompanyIds: recentCompanies });
+  } catch (error: any) {
+    console.error('❌ Error fetching recent companies:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * POST /api/users/:userId/recent-companies
+ * Add a company to user's recently viewed list
+ */
+app.post('/api/users/:userId/recent-companies', async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const { companyId } = await c.req.json();
+    
+    if (!companyId) {
+      return c.json({ error: 'companyId is required' }, 400);
+    }
+    
+    // Get current recent companies
+    const recentCompanies = await kv.get(`user:${userId}:recent_companies`) || [];
+    
+    // Remove company if it already exists (to avoid duplicates)
+    const filtered = recentCompanies.filter((id: string) => id !== companyId);
+    
+    // Add to front of list, keep max 5
+    const updated = [companyId, ...filtered].slice(0, 5);
+    
+    // Save back
+    await kv.set(`user:${userId}:recent_companies`, updated);
+    
+    return c.json({ success: true, recentCompanyIds: updated });
+  } catch (error: any) {
+    console.error('❌ Error updating recent companies:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
 
 // ============================================
 // CLOUDFLARE EMAIL ROUTING INTEGRATION
@@ -150,6 +234,40 @@ app.post('/analytics/track', async (c) => {
   }
 });
 
+app.post('/analytics/track-auth', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { eventType, userId, firmId, firmName, email, success, errorMessage } = body;
+    
+    console.log('🔐 Tracking auth analytics event:', { eventType, email, success });
+    
+    const event = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      eventType,
+      userId: userId || null,
+      firmId: firmId || null,
+      firmName: firmName || null,
+      email: email || null,
+      success,
+      errorMessage: errorMessage || null,
+    };
+    
+    // Store with timestamp-based key for easy querying
+    const key = `analytics:auth:${event.timestamp}:${event.id}`;
+    
+    console.log('💾 Saving auth analytics to KV store with key:', key);
+    await kv.set(key, event);
+    
+    console.log(`✅ Auth analytics tracked successfully: ${eventType} - ${email} - ${success ? 'SUCCESS' : 'FAILED'}`);
+    
+    return c.json({ success: true, eventId: event.id });
+  } catch (error) {
+    console.error('❌ Error tracking auth analytics:', error);
+    return c.json({ error: 'Failed to track auth analytics' }, 500);
+  }
+});
+
 app.get('/analytics', async (c) => {
   try {
     const timeRange = c.req.query('timeRange') || '7d';
@@ -215,60 +333,121 @@ app.get('/analytics', async (c) => {
 
 app.get('/api/companies', async (c) => {
   try {
-    let companies = await kv.getByPrefix('company:');
+    // IMPORTANT: Get user's firm_id for data isolation
+    const authHeader = c.req.header('Authorization');
+    let firmId = null;
     
-    // Auto-seed if no companies exist
-    if (companies.length === 0) {
-      console.log('🌱 No companies found, auto-seeding database...');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
       
-      const seedCompanies = [
-        {
-          id: '1',
-          name: 'ABC Bäckerei GmbH',
-          country: 'DE',
-          status: 'Active',
-          tags: ['Bookkeeping', 'DE', 'VAT'],
-          docsThisMonth: 520,
-          lastActivity: '2 hours ago',
-          email: 'abc-backerei-gmbh+invoice@novalare.com',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: '2',
-          name: 'TechNova UG',
-          country: 'DE',
-          status: 'Active',
-          tags: ['Tech', 'DE', 'Startup'],
-          docsThisMonth: 1130,
-          lastActivity: '1 day ago',
-          email: 'technova-ug+invoice@novalare.com',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: '3',
-          name: 'Green Logistics GmbH',
-          country: 'DE',
-          status: 'Active',
-          tags: ['Logistics', 'DE', 'VAT'],
-          docsThisMonth: 230,
-          lastActivity: '3 days ago',
-          email: 'green-logistics-gmbh+invoice@novalare.com',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-      
-      for (const company of seedCompanies) {
-        await kv.set(`company:${company.id}`, company);
-      }
-      
-      companies = seedCompanies;
-      console.log('✅ Auto-seeded 3 companies');
+      // Try to get user from token (for authenticated users)
+      firmId = await getFirmIdFromToken(token);
     }
     
-    return c.json({ success: true, data: companies });
+    // If no firmId found, use default firm for backward compatibility
+    if (!firmId) {
+      firmId = 'default-firm-halyl';
+    }
+    
+    // Get pagination parameters
+    const page = parseInt(c.req.query('page') || '1');
+    const pageSize = parseInt(c.req.query('pageSize') || '9');
+    const search = c.req.query('search') || '';
+    
+    // console.log(`📊 Fetching companies for firm: ${firmId}, page: ${page}, pageSize: ${pageSize}, search: ${search}`);
+    
+    // Fetch companies with pagination
+    let allCompanies: any[] = [];
+    
+    // Also check for legacy companies without firm prefix (backward compatibility)
+    if (firmId === 'default-firm-halyl') {
+      // For default firm, fetch ALL companies from both sources FIRST, then paginate
+      const firmResult = await kv.getByPrefixPaginated(
+        `firm:${firmId}:company:`,
+        1,
+        10000, // Get all firm-scoped companies
+        search
+      );
+      
+      const legacyResult = await kv.getByPrefixPaginated(
+        'company:',
+        1,
+        10000, // Get all legacy companies
+        search
+      );
+      
+      // Merge all companies from both sources
+      const merged = [...firmResult.data, ...legacyResult.data];
+      
+      // Filter out invalid companies and deduplicate
+      const validCompanies = merged.filter((company: any) => {
+        if (!company || !company.id || company.id === 'undefined' || company.id === 'null') {
+          console.warn('⚠️ Filtering out invalid company from backend:', JSON.stringify(company));
+          return false;
+        }
+        return true;
+      });
+      
+      // Deduplicate by company ID
+      const uniqueCompaniesMap = new Map(validCompanies.map(c => [c.id, c]));
+      allCompanies = Array.from(uniqueCompaniesMap.values());
+    } else {
+      // For other firms, just get their companies
+      const firmResult = await kv.getByPrefixPaginated(
+        `firm:${firmId}:company:`,
+        1,
+        10000, // Get all companies
+        search
+      );
+      
+      // Filter out invalid companies
+      allCompanies = firmResult.data.filter((company: any) => {
+        if (!company || !company.id || company.id === 'undefined' || company.id === 'null') {
+          console.warn('⚠️ Filtering out invalid company from backend:', JSON.stringify(company));
+          return false;
+        }
+        return true;
+      });
+    }
+    
+    // Sort companies alphabetically by name
+    allCompanies.sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      return nameA.localeCompare(nameB); // A-Z
+    });
+    
+    // Calculate pagination on the complete merged dataset
+    const total = allCompanies.length;
+    const totalPages = Math.ceil(total / pageSize);
+    
+    // Apply pagination to get the current page's data
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const paginatedCompanies = allCompanies.slice(start, end);
+    
+    // Build the result
+    const result = {
+      data: paginatedCompanies,
+      total,
+      page,
+      pageSize,
+      totalPages
+    };
+    
+    // No auto-seeding - users start with empty dashboard
+    // console.log(`✅ Found ${result.data.length} companies (page ${page} of ${result.totalPages})`);
+    
+    return c.json({ 
+      success: true, 
+      data: result.data,
+      pagination: {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        totalPages: result.totalPages
+      }
+    });
   } catch (error) {
     console.error('Error fetching companies:', error);
     return c.json({ success: false, error: 'Failed to fetch companies' }, 500);
@@ -278,12 +457,54 @@ app.get('/api/companies', async (c) => {
 app.get('/api/companies/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const company = await kv.get(`company:${id}`);
+    
+    // Validate company ID
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error(`❌ Invalid company ID provided: ${id}`);
+      return c.json({ success: false, error: 'Invalid company ID' }, 400);
+    }
+    
+    // Get user's firm_id for data isolation
+    const authHeader = c.req.header('Authorization');
+    let firmId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (user && !error) {
+          const userData = await kv.get(`user:${user.id}`);
+          if (userData) {
+            firmId = userData.firm_id;
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Not authenticated, using default firm');
+      }
+    }
+    
+    // If no firmId found, use default firm for backward compatibility
+    if (!firmId) {
+      firmId = 'default-firm-halyl';
+    }
+    
+    console.log(`📊 Fetching company ${id} for firm: ${firmId}`);
+    
+    // Try firm-scoped key first
+    let company = await kv.get(`firm:${firmId}:company:${id}`);
+    
+    // Fall back to legacy key for backward compatibility
+    if (!company && firmId === 'default-firm-halyl') {
+      company = await kv.get(`company:${id}`);
+    }
     
     if (!company) {
+      console.error(`❌ Company ${id} not found for firm ${firmId}`);
       return c.json({ success: false, error: 'Company not found' }, 404);
     }
     
+    console.log(`✅ Found company: ${company.name}`);
     return c.json({ success: true, data: company });
   } catch (error) {
     console.error('Error fetching company:', error);
@@ -293,11 +514,39 @@ app.get('/api/companies/:id', async (c) => {
 
 app.post('/api/companies', async (c) => {
   try {
+    // Get user's firm_id for data isolation
+    const authHeader = c.req.header('Authorization');
+    let firmId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (user && !error) {
+          const userData = await kv.get(`user:${user.id}`);
+          if (userData) {
+            firmId = userData.firm_id;
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Not authenticated, using default firm');
+      }
+    }
+    
+    // If no firmId found, use default firm for backward compatibility
+    if (!firmId) {
+      firmId = 'default-firm-halyl';
+    }
+    
+    console.log(`➕ Creating company for firm: ${firmId}`);
+    
     const body = await c.req.json();
     const id = crypto.randomUUID();
     const company = {
       id,
       ...body,
+      firm_id: firmId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -308,7 +557,10 @@ app.post('/api/companies', async (c) => {
       company.email = emailAddress;
     }
     
-    await kv.set(`company:${id}`, company);
+    // Store with firm-scoped key
+    await kv.set(`firm:${firmId}:company:${id}`, company);
+    console.log(`✅ Company created: ${company.name} (ID: ${id})`);
+    
     return c.json({ success: true, data: company }, 201);
   } catch (error) {
     console.error('Error creating company:', error);
@@ -319,10 +571,56 @@ app.post('/api/companies', async (c) => {
 app.put('/api/companies/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    
+    // Validate company ID
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error(`❌ Invalid company ID provided: ${id}`);
+      return c.json({ success: false, error: 'Invalid company ID' }, 400);
+    }
+    
     const body = await c.req.json();
-    const existing = await kv.get(`company:${id}`);
+    
+    // Get user's firm_id for data isolation
+    const authHeader = c.req.header('Authorization');
+    let firmId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (user && !error) {
+          const userData = await kv.get(`user:${user.id}`);
+          if (userData) {
+            firmId = userData.firm_id;
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Not authenticated, using default firm');
+      }
+    }
+    
+    // If no firmId found, use default firm for backward compatibility
+    if (!firmId) {
+      firmId = 'default-firm-halyl';
+    }
+    
+    console.log(`✏️ Updating company ${id} for firm: ${firmId}`);
+    
+    // Try to find the company with firm-scoped key first
+    let existing = await kv.get(`firm:${firmId}:company:${id}`);
+    let keyToUse = `firm:${firmId}:company:${id}`;
+    
+    // Fall back to legacy key for backward compatibility
+    if (!existing && firmId === 'default-firm-halyl') {
+      existing = await kv.get(`company:${id}`);
+      if (existing) {
+        keyToUse = `company:${id}`;
+      }
+    }
     
     if (!existing) {
+      console.error(`❌ Company ${id} not found for firm ${firmId}`);
       return c.json({ success: false, error: 'Company not found' }, 404);
     }
     
@@ -341,7 +639,8 @@ app.put('/api/companies/:id', async (c) => {
       }
     }
     
-    await kv.set(`company:${id}`, updated);
+    await kv.set(keyToUse, updated);
+    console.log(`✅ Company updated: ${updated.name}`);
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Error updating company:', error);
@@ -352,9 +651,54 @@ app.put('/api/companies/:id', async (c) => {
 app.delete('/api/companies/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const company = await kv.get(`company:${id}`);
+    
+    // Validate company ID
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error(`❌ Invalid company ID provided: ${id}`);
+      return c.json({ success: false, error: 'Invalid company ID' }, 400);
+    }
+    
+    // Get user's firm_id for data isolation
+    const authHeader = c.req.header('Authorization');
+    let firmId = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (user && !error) {
+          const userData = await kv.get(`user:${user.id}`);
+          if (userData) {
+            firmId = userData.firm_id;
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Not authenticated, using default firm');
+      }
+    }
+    
+    // If no firmId found, use default firm for backward compatibility
+    if (!firmId) {
+      firmId = 'default-firm-halyl';
+    }
+    
+    console.log(`🗑️ Deleting company ${id} for firm: ${firmId}`);
+    
+    // Try to find the company with firm-scoped key first
+    let company = await kv.get(`firm:${firmId}:company:${id}`);
+    let keyToUse = `firm:${firmId}:company:${id}`;
+    
+    // Fall back to legacy key for backward compatibility
+    if (!company && firmId === 'default-firm-halyl') {
+      company = await kv.get(`company:${id}`);
+      if (company) {
+        keyToUse = `company:${id}`;
+      }
+    }
     
     if (!company) {
+      console.error(`❌ Company ${id} not found for firm ${firmId}`);
       return c.json({ success: false, error: 'Company not found' }, 404);
     }
     
@@ -363,7 +707,8 @@ app.delete('/api/companies/:id', async (c) => {
       await deleteCloudflareEmailAddress(company.email);
     }
     
-    await kv.del(`company:${id}`);
+    await kv.del(keyToUse);
+    console.log(`✅ Company deleted: ${company.name}`);
     return c.json({ success: true });
   } catch (error) {
     console.error('Error deleting company:', error);
@@ -542,11 +887,48 @@ app.post('/api/companies/:companyId/activities', async (c) => {
 app.get('/api/companies/:companyId/invoices', async (c) => {
   try {
     const companyId = c.req.param('companyId');
-    const invoices = await kv.getByPrefix(`invoice:${companyId}:`);
-    return c.json({ success: true, data: invoices });
+    console.log(`📥 GET /api/companies/${companyId}/invoices`);
+    
+    // Add pagination to prevent CPU timeout
+    const limit = parseInt(c.req.query('limit') || '100'); // Default 100 invoices
+    const offset = parseInt(c.req.query('offset') || '0');
+    
+    console.log(`📊 Fetching invoices with limit=${limit}, offset=${offset}`);
+    
+    // Use Supabase client directly with pagination instead of getByPrefix
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    const { data, error, count } = await supabase
+      .from('kv_store_53c2e113')
+      .select('value', { count: 'exact' })
+      .like('key', `invoice:${companyId}:%`)
+      .range(offset, offset + limit - 1)
+      .order('key', { ascending: false }); // Most recent first
+    
+    if (error) {
+      throw new Error(error.message);
+    }
+    
+    const invoices = data?.map((d) => d.value) ?? [];
+    
+    console.log(`✅ Found ${invoices.length} invoices (total: ${count || 0})`);
+    
+    return c.json({ 
+      success: true, 
+      data: invoices,
+      pagination: {
+        limit,
+        offset,
+        total: count || 0,
+        hasMore: (offset + limit) < (count || 0)
+      }
+    });
   } catch (error) {
-    console.error('Error fetching invoices:', error);
-    return c.json({ success: false, error: 'Failed to fetch invoices' }, 500);
+    console.error('❌ Error fetching invoices:', error);
+    return c.json({ success: false, error: 'Failed to fetch invoices', details: error.message }, 500);
   }
 });
 
@@ -934,33 +1316,75 @@ app.post('/api/webhook/cloudflare', async (c) => {
     console.log('  To:', to);
     console.log('  Subject:', subject);
     
-    // Find company by email address
+    // Find company by email address - SEARCH EMAIL-SETTINGS (NOT company.email)
     let companyId = body.companyId || null;
+    let documentType: 'receipts' | 'invoices' | null = null;
     
     if (!companyId && to) {
-      // Search all companies for matching email
-      const allCompanies = await kv.getByPrefix('company:');
-      const matchingCompany = allCompanies.find((company: any) => 
-        company.email && company.email.toLowerCase() === to.toLowerCase()
-      );
+      console.log('🔍 Searching for company by forwarding email address...');
       
-      if (matchingCompany) {
-        companyId = matchingCompany.id;
-        console.log(`✅ Found company by email: ${matchingCompany.name} (ID: ${companyId})`);
-      } else {
-        console.warn(`⚠️ No company found for email: ${to}, using default company ID: 1`);
-        companyId = '1';
+      // Search email-settings for matching forwardingEmail
+      // Get all email settings across all companies
+      const allData = await kv.getByPrefix('company:');
+      
+      // Filter to only email-settings entries and search for matching email
+      for (const entry of allData) {
+        // Check if this is an email-settings entry (has forwardingEmail field)
+        if (entry && typeof entry === 'object' && entry.forwardingEmail) {
+          const toEmailLower = to.toLowerCase();
+          
+          // Check if the "to" email matches the forwarding email
+          if (entry.forwardingEmail?.toLowerCase() === toEmailLower) {
+            // Find which company this settings belongs to
+            const allCompanies = await kv.getByPrefix('company:');
+            for (const potentialCompany of allCompanies) {
+              if (potentialCompany && potentialCompany.id) {
+                const settingsKey = `company:${potentialCompany.id}:email-settings`;
+                const companySettings = await kv.get(settingsKey);
+                
+                if (companySettings && companySettings.forwardingEmail?.toLowerCase() === toEmailLower) {
+                  companyId = potentialCompany.id;
+                  // Document type will be determined by AI classification
+                  documentType = null;
+                  console.log(`✅ Found company by forwarding email: ${potentialCompany.name} (ID: ${companyId})`);
+                  console.log(`   Forwarding email: ${entry.forwardingEmail}`);
+                  console.log(`   📋 AI will automatically classify as invoice or receipt`);
+                  break;
+                }
+              }
+            }
+            if (companyId) break;
+          }
+        }
+      }
+      
+      if (!companyId) {
+        console.warn(`⚠️ No company found for forwarding email: ${to}`);
+        console.warn(`   Make sure the email exists in a company's email settings.`);
+        // Return early - don't process emails for non-existent companies
+        return c.json({ 
+          success: false, 
+          error: `No company found with forwarding email ${to}. The email may not be configured in any company's settings.`,
+          message: 'Email not processed - company not found'
+        }, 404);
       }
     }
     
     console.log('  Company ID:', companyId);
+    console.log('  Document Type:', documentType || 'Will be classified by AI');
     
     // Verify company exists
     const company = await kv.get(`company:${companyId}`);
     if (!company) {
-      console.warn('⚠️ Company not found, using default company ID: 1');
-      companyId = '1';
+      console.error(`❌ Company ${companyId} not found`);
+      return c.json({ 
+        success: false, 
+        error: `Company ${companyId} not found`,
+        message: 'Email not processed - company not found'
+      }, 404);
     }
+    
+    console.log(`✅ Found company: ${company.name}`);
     
     // Extract attachments from the request (Cloudflare Worker should send these)
     const attachments = body.attachments || [];

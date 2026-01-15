@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner@2.0.3";
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { formatCurrency } from '../utils/currency';
 import { motion, AnimatePresence } from "motion/react";
 import { ProcessingStages } from "../components/ProcessingStages";
 
@@ -14,6 +15,7 @@ interface BankTransaction {
   description: string;
   amount: number;
   balance?: number;
+  currency?: string;
 }
 
 interface LedgerEntry {
@@ -95,7 +97,7 @@ export function BankRecDemo() {
       'application/vnd.ms-excel',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     ];
-    
+
     if (!validTypes.includes(file.type) && !file.name.endsWith('.csv')) {
       toast.error('Please upload a CSV or Excel file');
       return;
@@ -124,7 +126,7 @@ export function BankRecDemo() {
     console.log('🚀 Starting bank reconciliation...');
     console.log('📁 Bank file:', bankFile.name, bankFile.type, bankFile.size, 'bytes');
     console.log('📁 Ledger file:', ledgerFile.name, ledgerFile.type, ledgerFile.size, 'bytes');
-    
+
     setIsProcessing(true);
     setError(null);
     setShowAllMatches(false);
@@ -152,7 +154,7 @@ export function BankRecDemo() {
       });
 
       console.log('✅ Response received:', response.status, response.statusText);
-      
+
       // Check if response is ok before trying to parse JSON
       if (!response.ok) {
         let errorData;
@@ -182,9 +184,9 @@ export function BankRecDemo() {
         console.log('🛑 Request aborted (component unmounted)');
         return;
       }
-      
+
       let errorMessage = 'Failed to process reconciliation. Please try again.';
-      
+
       // Provide more specific error messages
       if (err.message === 'Failed to fetch') {
         errorMessage = 'Unable to connect to the server. This could mean: (1) The Supabase Edge Function is not deployed, (2) Network connectivity issues, or (3) CORS configuration problem. Please check the browser console for more details.';
@@ -197,7 +199,7 @@ export function BankRecDemo() {
       } else if (err.message) {
         errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
       setIsProcessing(false);
       toast.error(errorMessage);
@@ -249,25 +251,20 @@ export function BankRecDemo() {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: 'EUR'
-    }).format(amount);
-  };
+  // Using global formatCurrency from utils/currency
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return 'N/A';
-    
+
     try {
       // Handle various date formats: "15.03.2025", "2025-03-15", "15/03/2025"
       let date: Date;
-      
+
       // Check if it's DD.MM.YYYY format
       if (dateStr.includes('.')) {
         const [day, month, year] = dateStr.split('.');
         date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-      } 
+      }
       // Check if it's DD/MM/YYYY format
       else if (dateStr.includes('/')) {
         const [day, month, year] = dateStr.split('/');
@@ -277,12 +274,12 @@ export function BankRecDemo() {
       else {
         date = new Date(dateStr);
       }
-      
+
       // Check if date is valid
       if (isNaN(date.getTime())) {
         return dateStr;
       }
-      
+
       return date.toLocaleDateString('de-DE');
     } catch {
       return dateStr;
@@ -292,7 +289,7 @@ export function BankRecDemo() {
   return (
     <div className="relative bg-black min-h-screen overflow-x-hidden">
       <Header />
-      
+
       <div className="relative pt-32 pb-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           {/* Back Button */}
@@ -333,11 +330,10 @@ export function BankRecDemo() {
                   />
                   <div
                     onClick={() => bankInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-                      bankFile
-                        ? 'border-purple-500 bg-purple-500/10'
-                        : 'border-white/20 hover:border-purple-500/50 hover:bg-white/5'
-                    }`}
+                    className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${bankFile
+                      ? 'border-purple-500 bg-purple-500/10'
+                      : 'border-white/20 hover:border-purple-500/50 hover:bg-white/5'
+                      }`}
                   >
                     {!bankFile ? (
                       <div className="space-y-3">
@@ -372,11 +368,10 @@ export function BankRecDemo() {
                   />
                   <div
                     onClick={() => ledgerInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-                      ledgerFile
-                        ? 'border-fuchsia-500 bg-fuchsia-500/10'
-                        : 'border-white/20 hover:border-fuchsia-500/50 hover:bg-white/5'
-                    }`}
+                    className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${ledgerFile
+                      ? 'border-fuchsia-500 bg-fuchsia-500/10'
+                      : 'border-white/20 hover:border-fuchsia-500/50 hover:bg-white/5'
+                      }`}
                   >
                     {!ledgerFile ? (
                       <div className="space-y-3">
@@ -493,18 +488,15 @@ export function BankRecDemo() {
                   <div className="text-orange-300 text-sm mb-2">Unmatched</div>
                   <div className="text-3xl text-white">{result.summary.unmatched_bank_count}</div>
                 </div>
-                <div className={`bg-gradient-to-br ${
-                  Math.abs(result.summary.difference) < 0.01
-                    ? 'from-green-500/20 to-green-600/20 border-green-500/30'
-                    : 'from-red-500/20 to-red-600/20 border-red-500/30'
-                } border rounded-2xl p-6`}>
-                  <div className={`text-sm mb-2 ${
-                    Math.abs(result.summary.difference) < 0.01 ? 'text-green-300' : 'text-red-300'
-                  }`}>Difference</div>
-                  <div className={`text-3xl ${
-                    Math.abs(result.summary.difference) < 0.01 ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {formatCurrency(result.summary.difference)}
+                <div className={`bg-gradient-to-br ${Math.abs(result.summary.difference) < 0.01
+                  ? 'from-green-500/20 to-green-600/20 border-green-500/30'
+                  : 'from-red-500/20 to-red-600/20 border-red-500/30'
+                  } border rounded-2xl p-6`}>
+                  <div className={`text-sm mb-2 ${Math.abs(result.summary.difference) < 0.01 ? 'text-green-300' : 'text-red-300'
+                    }`}>Difference</div>
+                  <div className={`text-3xl ${Math.abs(result.summary.difference) < 0.01 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                    {formatCurrency(result.summary.difference, 'USD')}
                   </div>
                 </div>
               </div>
@@ -538,20 +530,19 @@ export function BankRecDemo() {
                               {pair.bank_transaction.description}
                             </td>
                             <td className="py-3 px-4 text-white text-sm text-right">
-                              {formatCurrency(pair.bank_transaction.amount)}
+                              {formatCurrency(pair.bank_transaction.amount, pair.bank_transaction.currency)}
                             </td>
                             <td className="py-3 px-4 text-center">
-                              <span className={`inline-block px-2 py-1 rounded text-xs ${
-                                pair.match_type === 'exact'
-                                  ? 'bg-green-500/20 text-green-300'
-                                  : pair.match_type === 'grouped'
+                              <span className={`inline-block px-2 py-1 rounded text-xs ${pair.match_type === 'exact'
+                                ? 'bg-green-500/20 text-green-300'
+                                : pair.match_type === 'grouped'
                                   ? 'bg-blue-500/20 text-blue-300'
                                   : pair.match_type === 'timing_difference'
-                                  ? 'bg-yellow-500/20 text-yellow-300'
-                                  : pair.match_type === 'fx_conversion'
-                                  ? 'bg-purple-500/20 text-purple-300'
-                                  : 'bg-cyan-500/20 text-cyan-300'
-                              }`}>
+                                    ? 'bg-yellow-500/20 text-yellow-300'
+                                    : pair.match_type === 'fx_conversion'
+                                      ? 'bg-purple-500/20 text-purple-300'
+                                      : 'bg-cyan-500/20 text-cyan-300'
+                                }`}>
                                 {pair.match_type}
                               </span>
                             </td>
@@ -566,8 +557,8 @@ export function BankRecDemo() {
                         onClick={() => setShowAllMatches(!showAllMatches)}
                         className="bg-purple-500/20 border-2 border-purple-400/40 text-purple-200 hover:bg-purple-500/30 hover:border-purple-400/60 hover:text-white transition-all"
                       >
-                        {showAllMatches 
-                          ? 'Show Less' 
+                        {showAllMatches
+                          ? 'Show Less'
                           : `Show All ${result.matched_pairs.length} Matches`
                         }
                       </Button>
@@ -599,7 +590,7 @@ export function BankRecDemo() {
                             </div>
                           </div>
                           <div className="text-white text-right">
-                            {formatCurrency(item.transaction.amount)}
+                            {formatCurrency(item.transaction.amount, item.transaction.currency)}
                           </div>
                         </div>
                         {item.suggested_je && (

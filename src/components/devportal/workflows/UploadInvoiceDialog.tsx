@@ -215,12 +215,6 @@ export function UploadInvoiceDialog({ companyId, onSuccess, onOpenChange }: Uplo
         onOpenChange(newOpen);
       }
     }}>
-      <DialogTrigger asChild>
-        <Button className="gap-2 h-10 bg-gray-900 hover:bg-gray-800">
-          <Upload className="size-4" />
-          <span className="text-sm">Upload Invoices</span>
-        </Button>
-      </DialogTrigger>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Upload & Extract Invoice</DialogTitle>

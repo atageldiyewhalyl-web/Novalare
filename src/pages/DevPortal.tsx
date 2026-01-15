@@ -35,10 +35,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import novalareLogoImage from 'figma:asset/85a18c0f14d9634898763219441c014da1faf3e8.png';
 
 // Lazy load view components for better performance
 const Dashboard = lazy(() =>
   import("@/components/devportal/Dashboard").then((m) => ({ default: m.Dashboard }))
+);
+const CompanyListHome = lazy(() =>
+  import("@/components/devportal/CompanyListHome").then((m) => ({ default: m.CompanyListHome }))
 );
 const CompaniesList = lazy(() =>
   import("@/components/devportal/CompaniesList").then((m) => ({ default: m.CompaniesList }))
@@ -112,6 +116,7 @@ export function DevPortal() {
   const { user, signOut } = useAuth();
   const { theme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>({
     type: "dashboard",
   });
@@ -141,15 +146,17 @@ export function DevPortal() {
     return (
       <>
         <div style={{ display: currentView.type === 'dashboard' ? 'block' : 'none' }}>
-          <Dashboard onNavigate={handleNavigate} />
+          <CompanyListHome />
         </div>
-        <div style={{ display: currentView.type === 'company' ? 'block' : 'none' }}>
-          <CompanyWorkspace
-            companyId={currentView.params?.companyId || "1"}
-            onNavigate={handleNavigate}
-            activeTab={currentView.params?.activeTab}
-          />
-        </div>
+        {currentView.type === 'company' && currentView.params?.companyId && (
+          <div style={{ display: currentView.type === 'company' ? 'block' : 'none' }}>
+            <CompanyWorkspace
+              companyId={currentView.params.companyId}
+              onNavigate={handleNavigate}
+              activeTab={currentView.params?.activeTab}
+            />
+          </div>
+        )}
         <div style={{ display: currentView.type === 'invoice-extraction' ? 'block' : 'none' }}>
           <InvoiceExtraction
             companyId={currentView.params?.companyId}
@@ -176,13 +183,16 @@ export function DevPortal() {
           <JournalEntries companyId={currentView.params?.companyId} companyName={currentView.params?.companyName} onNavigate={handleNavigate} />
         </div>
         <div style={{ display: currentView.type === 'chart-of-accounts' ? 'block' : 'none' }}>
-          <ChartOfAccountsManager 
+          <ChartOfAccountsManager
             companyId={currentView.params?.companyId || "demo_company"}
             companyName={currentView.params?.companyName || "Demo Company"}
           />
         </div>
         <div style={{ display: currentView.type === 'month-end-close' ? 'block' : 'none' }}>
-          <MonthEndClose />
+          <MonthEndClose
+            companyId={currentView.params?.companyId || "demo_company"}
+            companyName={currentView.params?.companyName || "Demo Company"}
+          />
         </div>
         <div style={{ display: currentView.type === 'webhook-tester' ? 'block' : 'none' }}>
           <WebhookTester />
@@ -198,95 +208,65 @@ export function DevPortal() {
   };
 
   return (
-    <div className={theme === 'premium-dark' ? 'min-h-screen bg-black' : 'min-h-screen bg-gray-50'}>
+    <div className="min-h-screen bg-gray-50">
       {/* Block Google from indexing dashboard */}
-      <SEO 
+      <SEO
         title="Dashboard - Novalare"
         description="Novalare Dashboard"
         noindex={true}
       />
-      
+
       {/* Top Bar */}
-      <div className={theme === 'premium-dark' 
-        ? 'fixed top-0 left-0 right-0 h-16 bg-black border-b border-purple-500/20 z-50' 
-        : 'fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 z-50'
-      }>
+      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 z-50">
         <div className="flex items-center justify-between h-full px-6">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={theme === 'premium-dark'
-                ? 'lg:hidden text-purple-200 hover:text-white hover:bg-purple-500/10'
-                : 'lg:hidden'
-              }
+              className="lg:hidden"
             >
               <Menu className="size-5" />
             </Button>
-            <Building2 className={theme === 'premium-dark' ? 'size-6 text-purple-400' : 'size-6 text-blue-600'} />
-            <span className={theme === 'premium-dark' 
-              ? 'text-xl tracking-tight text-white' 
-              : 'text-xl tracking-tight text-gray-900'
-            }>
-              Novalare
-            </span>
+            <img
+              src={novalareLogoImage}
+              alt="Novalare Logo"
+              className="h-8"
+            />
           </div>
 
           <div className="flex items-center gap-4">
-            <span className={theme === 'premium-dark' 
-              ? 'text-purple-200 text-sm hidden md:block' 
-              : 'text-gray-600 text-sm hidden md:block'
-            }>
+            <span className="text-gray-600 text-sm hidden md:block">
               {user?.firmName}
             </span>
-            <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className={theme === 'premium-dark'
-                    ? 'flex items-center gap-2 h-9 text-purple-200 hover:text-white hover:bg-purple-500/10'
-                    : 'flex items-center gap-2 h-9'
-                  }
+                  className="flex items-center gap-2 h-9"
                 >
                   <Avatar className="size-7">
                     <AvatarFallback className="bg-purple-600 text-white text-xs">
                       {getUserInitials()}
                     </AvatarFallback>
                   </Avatar>
-                  <ChevronDown className={theme === 'premium-dark' ? 'size-4 text-purple-300' : 'size-4 text-gray-500'} />
+                  <ChevronDown className="size-4 text-gray-500" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent 
-                align="end" 
-                className={theme === 'premium-dark' 
-                  ? 'w-56 bg-gray-900 border-purple-500/20 text-white' 
-                  : 'w-56'
-                }
-              >
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <div className="flex flex-col">
                     <span className="text-sm">{user?.fullName}</span>
-                    <span className={theme === 'premium-dark' ? 'text-xs text-purple-300/60' : 'text-xs text-gray-500'}>{user?.email}</span>
+                    <span className="text-xs text-gray-500">{user?.email}</span>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator className={theme === 'premium-dark' ? 'bg-purple-500/20' : ''} />
-                <DropdownMenuItem 
-                  onClick={() => handleNavigate('settings')}
-                  className={theme === 'premium-dark' 
-                    ? 'text-purple-200 hover:bg-purple-500/10 hover:text-white focus:bg-purple-500/10 focus:text-white' 
-                    : ''
-                  }
-                >
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleNavigate('settings')}>
                   <User className="size-4 mr-2" />
                   Profile Settings
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className={theme === 'premium-dark' ? 'bg-purple-500/20' : ''} />
-                <DropdownMenuItem 
-                  onClick={handleLogout} 
-                  className="text-red-600"
-                >
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                   <LogOut className="size-4 mr-2" />
                   Log out
                 </DropdownMenuItem>
@@ -296,245 +276,79 @@ export function DevPortal() {
         </div>
       </div>
 
-      {/* Sidebar */}
+      {/* Sidebar - Collapsed by default, expands on hover */}
       <div
-        className={theme === 'premium-dark'
-          ? `fixed left-0 top-16 bottom-0 w-64 bg-black border-r border-purple-500/20 overflow-y-auto transition-transform duration-200 z-40 ${
-              sidebarOpen ? "translate-x-0" : "-translate-x-full"
-            }`
-          : `fixed left-0 top-16 bottom-0 w-64 bg-white border-r border-gray-200 overflow-y-auto transition-transform duration-200 z-40 ${
-              sidebarOpen ? "translate-x-0" : "-translate-x-full"
-            }`
-        }
+        onMouseEnter={() => setSidebarExpanded(true)}
+        onMouseLeave={() => setSidebarExpanded(false)}
+        className={`
+          fixed left-0 top-16 bottom-0 overflow-y-auto transition-all duration-300 ease-in-out z-40
+          ${sidebarExpanded ? 'w-64' : 'w-16'}
+          bg-white border-r border-gray-200
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}
       >
-        <nav className="p-4 space-y-1">
+        <nav className="p-3 space-y-2">
+          {/* Home */}
           <Button
-            variant={
-              currentView.type === "dashboard"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "dashboard"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
+            variant={currentView.type === "dashboard" ? "secondary" : "ghost"}
+            className={`
+              w-full transition-all duration-300
+              ${sidebarExpanded ? 'justify-start gap-3' : 'justify-center'}
+              h-12
+            `}
             onClick={() => handleNavigate("dashboard")}
           >
-            <Home className="size-4" />
-            <span className="text-sm">Home</span>
+            <Home className="size-5 flex-shrink-0" />
+            {sidebarExpanded && <span className="text-sm whitespace-nowrap">Home</span>}
           </Button>
 
-          <div className={theme === 'premium-dark'
-            ? "pt-4 pb-2 px-3 text-xs text-purple-400/80 uppercase tracking-wider"
-            : "pt-4 pb-2 px-3 text-xs text-gray-500 uppercase tracking-wider"
-          }>
-            Workflows
-          </div>
+          {/* Spacer */}
+          <div className="border-t border-gray-200 my-4" />
 
+          {/* Settings & Billing */}
           <Button
-            variant={
-              currentView.type === "invoice-extraction"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "invoice-extraction"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
-            onClick={() => handleNavigate("invoice-extraction")}
+            variant={currentView.type === "settings" ? "secondary" : "ghost"}
+            className={`
+              w-full transition-all duration-300
+              ${sidebarExpanded ? 'justify-start gap-3' : 'justify-center'}
+              h-12
+            `}
+            onClick={() => handleNavigate("settings")}
           >
-            <FileText className="size-4" />
-            <span className="text-sm">Invoice Extraction</span>
+            <SettingsIcon className="size-5 flex-shrink-0" />
+            {sidebarExpanded && <span className="text-sm whitespace-nowrap">Settings & Billing</span>}
           </Button>
 
+          {/* Spacer */}
+          <div className="border-t border-gray-200 my-4" />
+
+          {/* Back to Main Page */}
           <Button
-            variant={
-              currentView.type === "receipt-extraction"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "receipt-extraction"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
-            onClick={() => handleNavigate("receipt-extraction")}
+            variant="ghost"
+            className={`
+              w-full transition-all duration-300
+              ${sidebarExpanded ? 'justify-start gap-3' : 'justify-center'}
+              h-12
+              text-gray-500 hover:text-gray-900
+            `}
+            onClick={() => navigate("/")}
           >
-            <Receipt className="size-4" />
-            <span className="text-sm">Receipt Extraction</span>
+            <Building2 className="size-5 flex-shrink-0" />
+            {sidebarExpanded && <span className="text-sm whitespace-nowrap">Back to Main Page</span>}
           </Button>
-
-          <Button
-            variant={
-              currentView.type === "bank-reconciliation"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "bank-reconciliation"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500 mt-3"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white mt-3"
-              : "w-full justify-start gap-3 h-10 mt-3"
-            }
-            onClick={() =>
-              handleNavigate("bank-reconciliation")
-            }
-          >
-            <Landmark className="size-4" />
-            <span className="text-sm">Bank Reconciliation</span>
-          </Button>
-
-          <Button
-            variant={
-              currentView.type === "ap-reconciliation"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "ap-reconciliation"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
-            onClick={() => handleNavigate("ap-reconciliation")}
-          >
-            <Users className="size-4" />
-            <span className="text-sm">AP Reconciliation</span>
-          </Button>
-
-          {/* AR Reconciliation - Temporarily hidden from navigation
-          <Button
-            variant={
-              currentView.type === "ar-reconciliation"
-                ? "secondary"
-                : "ghost"
-            }
-            className="w-full justify-start gap-3 h-10"
-            onClick={() => handleNavigate("ar-reconciliation")}
-          >
-            <ReceiptText className="size-4" />
-            <span className="text-sm">AR Reconciliation</span>
-          </Button>
-          */}
-
-          <Button
-            variant={
-              currentView.type === "credit-card-reconciliation"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "credit-card-reconciliation"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
-            onClick={() => handleNavigate("credit-card-reconciliation")}
-          >
-            <CreditCard className="size-4" />
-            <span className="text-sm">Credit Card Reconciliation</span>
-          </Button>
-
-          <Button
-            variant={
-              currentView.type === "month-end-close"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "month-end-close"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500 mt-3"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white mt-3"
-              : "w-full justify-start gap-3 h-10 mt-3"
-            }
-            onClick={() => handleNavigate("month-end-close")}
-          >
-            <Calendar className="size-4" />
-            <span className="text-sm">Month-End Close</span>
-          </Button>
-
-          <Button
-            variant={
-              currentView.type === "journal-entries"
-                ? "secondary"
-                : "ghost"
-            }
-            className={theme === 'premium-dark'
-              ? currentView.type === "journal-entries"
-                ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-              : "w-full justify-start gap-3 h-10"
-            }
-            onClick={() => handleNavigate("journal-entries")}
-          >
-            <FileSpreadsheet className="size-4" />
-            <span className="text-sm">Journal Entries</span>
-          </Button>
-
-          <div className={theme === 'premium-dark'
-            ? "pt-4 border-t border-purple-500/20 mt-4"
-            : "pt-4 border-t border-gray-200 mt-4"
-          }>
-            <Button
-              variant={
-                currentView.type === "settings"
-                  ? "secondary"
-                  : "ghost"
-              }
-              className={theme === 'premium-dark'
-                ? currentView.type === "settings"
-                  ? "w-full justify-start gap-3 h-10 bg-gradient-to-r from-purple-600/20 to-pink-500/20 text-white border-l-2 border-purple-500"
-                  : "w-full justify-start gap-3 h-10 text-purple-200 hover:bg-purple-500/10 hover:text-white"
-                : "w-full justify-start gap-3 h-10"
-              }
-              onClick={() => handleNavigate("settings")}
-            >
-              <SettingsIcon className="size-4" />
-              <span className="text-sm">
-                Settings & Billing
-              </span>
-            </Button>
-
-            <div className={theme === 'premium-dark'
-              ? "mt-6 pt-4 border-t border-purple-500/20"
-              : "mt-6 pt-4 border-t border-gray-200"
-            }>
-              <Button
-                variant="ghost"
-                className={theme === 'premium-dark'
-                  ? "w-full justify-start gap-3 h-10 text-purple-300 hover:text-white hover:bg-purple-500/10"
-                  : "w-full justify-start gap-3 h-10 text-gray-500 hover:text-gray-900"
-                }
-                onClick={() => navigate("/")}
-              >
-                <Building2 className="size-4" />
-                <span className="text-sm">
-                  Back to Main Page
-                </span>
-              </Button>
-            </div>
-          </div>
         </nav>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content - Adjusted for collapsed sidebar */}
       <div
-        className={`pt-16 transition-all duration-200 ${sidebarOpen ? "pl-64" : ""}`}
+        className={`pt-16 transition-all duration-300 ${sidebarExpanded ? 'pl-64' : 'pl-16'}`}
       >
         <main className="p-8">
           <Suspense fallback={
             <div className="flex items-center justify-center min-h-[400px]">
               <div className="text-center">
-                <div className={theme === 'premium-dark' 
-                  ? 'w-12 h-12 border-3 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-3' 
-                  : 'w-12 h-12 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3'
-                }></div>
-                <p className={theme === 'premium-dark' ? 'text-purple-200 text-sm' : 'text-gray-500 text-sm'}>Loading view...</p>
+                <div className="w-12 h-12 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3"></div>
+                <p className="text-gray-500 text-sm">Loading view...</p>
               </div>
             </div>
           }>

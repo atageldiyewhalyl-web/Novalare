@@ -8,6 +8,7 @@ import { toast } from "sonner@2.0.3";
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { motion, AnimatePresence } from "motion/react";
 import { ProcessingStages } from "../components/ProcessingStages";
+import apIcon from "figma:asset/eb0d611038f856bc8a75ec057c26cb0dc3aa5ccf.png";
 
 interface VendorInvoice {
   invoice_number: string;
@@ -296,8 +297,8 @@ export function APRecDemo() {
                   {/* Vendor Statement Upload */}
                   <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-8 flex flex-col">
                     <div className="flex-1 flex flex-col">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-purple-500/20 rounded-full flex items-center justify-center">
-                        <FileText className="w-8 h-8 text-purple-300" />
+                      <div className="w-16 h-16 mx-auto mb-4 bg-purple-500/20 rounded-full flex items-center justify-center p-3">
+                        <img src={apIcon} alt="AP Icon" className="w-full h-full object-contain" />
                       </div>
                       <h3 className="text-xl font-semibold text-white mb-2 text-center" style={{ fontFamily: "'Outfit', sans-serif" }}>
                         Vendor Statement

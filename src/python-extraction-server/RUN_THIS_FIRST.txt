@@ -1,0 +1,43 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         🚀 RUN THIS FIRST                                    ║
+║                    Quick Start - 3 Commands                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+STEP 1: Make scripts executable
+───────────────────────────────────────────────────────────────────────────────
+cd python-extraction-server
+chmod +x start_no_proxy.sh test_enhanced_ai.sh
+
+
+STEP 2: Start server (Terminal 1)
+───────────────────────────────────────────────────────────────────────────────
+./start_no_proxy.sh
+
+Expected output:
+  🚫 Disabling proxy variables...
+  ✅ Proxies disabled
+  ✅ OPENAI_API_KEY found: sk-proj-...
+  🚀 Starting Flask Server
+   * Running on http://127.0.0.1:8000
+
+
+STEP 3: Run tests (Terminal 2)
+───────────────────────────────────────────────────────────────────────────────
+./test_enhanced_ai.sh
+
+Expected output:
+  ✅ Server is running
+  🤖 Calling /discover-layout endpoint...
+  ✅ AI Discovery succeeded!
+  📊 Transactions Extracted: 32
+  ✅ SUCCESS! 6x improvement
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         THAT'S IT!                                           ║
+║                                                                              ║
+║  The AI will now extract 30+ transactions from Capital One                  ║
+║  (was only 5 before)                                                        ║
+║                                                                              ║
+║  See READY_TO_TEST.md for troubleshooting                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝

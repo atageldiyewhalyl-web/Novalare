@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTheme } from '@/contexts/ThemeContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,11 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  ArrowLeft, 
-  CheckCircle2, 
-  FileSpreadsheet, 
-  BookOpen, 
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  FileSpreadsheet,
+  BookOpen,
   AlertCircle,
   Edit2,
   Plus,
@@ -27,7 +29,12 @@ import {
   ChevronUp,
   Trash2,
   Undo2,
-  Lock
+  Lock,
+  ArrowRight,
+  Calculator,
+  Calendar,
+  TrendingUp,
+  Building2
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '@/utils/supabase/info';
 import { companiesApi, Company } from '@/utils/api-client';
@@ -50,12 +57,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { UnmatchedItemCard } from './shared/ReconciliationItemCard';
+import { ReconciliationMatchDialog } from './shared/ReconciliationMatchDialog';
+import { ReconciliationFollowUpDialog } from './shared/ReconciliationFollowUpDialog';
+import { FxAdjustmentDialog } from './shared/FxAdjustmentDialog';
 
 interface BankRecReviewProps {
   companyId: string;
   companyName: string;
   period: string;
   onBack: () => void;
+  initialAccountId?: string | null;
 }
 
 interface BankTransaction {
@@ -94,22 +107,36 @@ interface UnmatchedLedger {
   action: string;
 }
 
-interface ResolvedItem {
-  type: 'bank' | 'ledger';
-  item: UnmatchedBank | UnmatchedLedger;
+
+type ResolvedItem = {
+  type: 'bank';
+  item: UnmatchedBank;
   markedAt: string;
   status: string;
   resolution: string;
   matchGroupId?: string;
-}
+} | {
+  type: 'ledger';
+  item: UnmatchedLedger;
+  markedAt: string;
+  status: string;
+  resolution: string;
+  matchGroupId?: string;
+};
 
-interface FollowUpItem {
-  type: 'bank' | 'ledger';
-  item: UnmatchedBank | UnmatchedLedger;
+type FollowUpItem = {
+  type: 'bank';
+  item: UnmatchedBank;
   note: string;
   markedAt: string;
   status?: string;
-}
+} | {
+  type: 'ledger';
+  item: UnmatchedLedger;
+  note: string;
+  markedAt: string;
+  status?: string;
+};
 
 interface PreMatchedItem {
   matchGroupId: string;
@@ -117,6 +144,8 @@ interface PreMatchedItem {
   ledgerEntries: LedgerEntry[];
   matchedAt: string;
   confidence?: number;
+  match_type?: string;
+  explanation?: string;
 }
 
 interface ReconciliationResult {
@@ -146,7 +175,8 @@ interface JournalEntry {
   memo?: string;
 }
 
-export function BankRecReview({ companyId, companyName, period, onBack }: BankRecReviewProps) {
+export function BankRecReview({ companyId, companyName, period, onBack, initialAccountId }: BankRecReviewProps) {
+  const { theme } = useTheme();
   const [reconciliationResult, setReconciliationResult] = useState<ReconciliationResult | null>(null);
   const [isLoadingReconciliation, setIsLoadingReconciliation] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -159,17 +189,17 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   const [editingType, setEditingType] = useState<'bank' | 'ledger' | null>(null);
   const [showMatchDialog, setShowMatchDialog] = useState(false);
   const [matchingBankItem, setMatchingBankItem] = useState<UnmatchedBank | null>(null);
-  
+
   // Multi-select matching state
   const [selectedBankItems, setSelectedBankItems] = useState<UnmatchedBank[]>([]);
   const [selectedLedgerItems, setSelectedLedgerItems] = useState<UnmatchedLedger[]>([]);
-  
+
   // Loading states for individual actions
   const [loadingActions, setLoadingActions] = useState<Record<string, boolean>>({});
-  
+
   // Expanded match groups in resolved section
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  
+
   // Optimistic update state - separate from reconciliationResult for real-time updates
   const [unmatchedBankItems, setUnmatchedBankItems] = useState<UnmatchedBank[]>([]);
   const [unmatchedLedgerItems, setUnmatchedLedgerItems] = useState<UnmatchedLedger[]>([]);
@@ -180,10 +210,84 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   const [isMonthLocked, setIsMonthLocked] = useState(false);
   const [lockDetails, setLockDetails] = useState<any>(null);
 
+  // Bank account selector state
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [chartOfAccounts, setChartOfAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(initialAccountId || null);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
+
+  // FX Adjustment Dialog state
+  const [showFxDialog, setShowFxDialog] = useState(false);
+  const [selectedFxGroup, setSelectedFxGroup] = useState<PreMatchedItem | null>(null);
+  const [isProcessingFx, setIsProcessingFx] = useState(false);
+
+  const selectedAccount = bankAccounts.find(acc => acc.id === selectedAccountId);
+  const accountCurrency = selectedAccount?.currency || 'USD';
+
+  // Load bank accounts on mount
   useEffect(() => {
-    loadLockStatus();
-    loadReconciliationData();
-  }, [companyId, period]);
+    loadBankAccounts();
+  }, [companyId]);
+
+  // Load reconciliation when account or period changes
+  useEffect(() => {
+    if (selectedAccountId) {
+      loadLockStatus();
+      loadReconciliationData();
+    }
+  }, [companyId, period, selectedAccountId]);
+
+  const loadBankAccounts = async () => {
+    setIsLoadingAccounts(true);
+    try {
+      // Fetch Chart of Accounts and filter for bank accounts
+      const coaResponse = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/companies/${companyId}/coa`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      if (!coaResponse.ok) {
+        console.error('Failed to fetch COA for bank accounts');
+        return;
+      }
+
+      const coaData = await coaResponse.json();
+      const allAccounts = coaData.accounts || [];
+      setChartOfAccounts(allAccounts);
+
+      // Filter for bank accounts only
+      const accounts = allAccounts.filter(
+        (acc: any) => acc.type === 'Bank' && acc.isActive !== false
+      );
+
+      setBankAccounts(accounts);
+
+      // Auto-select first account if available
+      // If we have an initial account ID, set it
+      if (initialAccountId) {
+        // Verify the account exists in the list
+        const accountExists = accounts.some((acc: any) => acc.id === initialAccountId);
+        if (accountExists) {
+          setSelectedAccountId(initialAccountId);
+        } else if (accounts.length > 0 && !selectedAccountId) {
+          // Fallback to first account if initial doesn't exist AND nothing else is selected
+          setSelectedAccountId(accounts[0].id);
+        }
+      } else if (accounts.length > 0 && !selectedAccountId) {
+        // Default to first account if no selection
+        setSelectedAccountId(accounts[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading bank accounts:', error);
+      toast.error('Failed to load bank accounts');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  };
 
   const loadLockStatus = async () => {
     try {
@@ -208,10 +312,15 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   };
 
   const loadReconciliationData = async () => {
+    if (!selectedAccountId) {
+      console.log('No account selected, skipping reconciliation load');
+      return;
+    }
+
     setIsLoadingReconciliation(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reconciliation?companyId=${companyId}&period=${period}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reconciliation-data?company_id=${companyId}&account_id=${selectedAccountId}&period=${period}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -221,11 +330,14 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Reconciliation data loaded:', data);
-        
+        console.log('Reconciliation data loaded for account', selectedAccountId, ':', data);
+
+        // Extract the result from the response
+        const reconciliationData = data.result || data;
+
         // Check if pre_matched_items is missing and matched_pairs exists - migrate if needed
-        if ((!data.pre_matched_items || data.pre_matched_items.length === 0) && 
-            data.matched_pairs && data.matched_pairs.length > 0) {
+        if ((!reconciliationData.pre_matched_items || reconciliationData.pre_matched_items.length === 0) &&
+          reconciliationData.matched_pairs && reconciliationData.matched_pairs.length > 0) {
           console.log('🔄 Pre-matched items missing, triggering migration...');
           try {
             const migrateResponse = await fetch(
@@ -236,15 +348,15 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
                   'Authorization': `Bearer ${publicAnonKey}`,
                   'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ companyId, period }),
+                body: JSON.stringify({ companyId, period, accountId: selectedAccountId }),
               }
             );
-            
+
             if (migrateResponse.ok) {
               console.log('✅ Migration successful, reloading data...');
               // Reload the data to get the updated pre_matched_items
               const reloadResponse = await fetch(
-                `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reconciliation?companyId=${companyId}&period=${period}`,
+                `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reconciliation-data?company_id=${companyId}&account_id=${selectedAccountId}&period=${period}`,
                 {
                   headers: {
                     'Authorization': `Bearer ${publicAnonKey}`,
@@ -253,11 +365,12 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
               );
               if (reloadResponse.ok) {
                 const updatedData = await reloadResponse.json();
-                setReconciliationResult(updatedData);
-                setUnmatchedBankItems(updatedData.unmatched_bank || []);
-                setUnmatchedLedgerItems(updatedData.unmatched_ledger || []);
-                setResolvedItems(updatedData.resolved_items || []);
-                setFollowUpItems(updatedData.follow_up_items || []);
+                const updatedRecData = updatedData.result || updatedData;
+                setReconciliationResult(updatedRecData);
+                setUnmatchedBankItems(updatedRecData.unmatched_bank || []);
+                setUnmatchedLedgerItems(updatedRecData.unmatched_ledger || []);
+                setResolvedItems(updatedRecData.resolved_items || []);
+                setFollowUpItems(updatedRecData.follow_up_items || []);
                 return;
               }
             }
@@ -265,14 +378,15 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
             console.error('Migration failed, using original data:', migrationError);
           }
         }
-        
-        setReconciliationResult(data);
-        
+
+        setReconciliationResult(reconciliationData);
+
         // Initialize optimistic update state
-        setUnmatchedBankItems(data.unmatched_bank || []);
-        setUnmatchedLedgerItems(data.unmatched_ledger || []);
-        setResolvedItems(data.resolved_items || []);
-        setFollowUpItems(data.follow_up_items || []);
+        console.log('🔍 DEBUG: Setting resolved items from API response:', reconciliationData.resolved_items?.length || 0, 'items');
+        setUnmatchedBankItems(reconciliationData.unmatched_bank || []);
+        setUnmatchedLedgerItems(reconciliationData.unmatched_ledger || []);
+        setResolvedItems(reconciliationData.resolved_items || []);
+        setFollowUpItems(reconciliationData.follow_up_items || []);
       } else {
         const errorText = await response.text();
         console.error('Failed to load reconciliation data:', response.status, errorText);
@@ -286,37 +400,80 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     }
   };
 
-  const formatCurrency = (amount: number): string => {
-    return amount.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
+
 
   const handleEditBankTransaction = (item: UnmatchedBank) => {
-    setEditingItem({...item.transaction});
+    setEditingItem({ ...item.transaction });
     setEditingType('bank');
     setSelectedBankItem(item);
     setShowEditDialog(true);
   };
 
   const handleEditLedgerEntry = (item: UnmatchedLedger) => {
-    setEditingItem({...item.entry});
+    setEditingItem({ ...item.entry });
     setEditingType('ledger');
     setSelectedLedgerItem(item);
     setShowEditDialog(true);
+  };
+
+  const handleOpenFxDialog = (group: PreMatchedItem) => {
+    setSelectedFxGroup(group);
+    setShowFxDialog(true);
+  };
+
+  const handleConfirmFxAdjustment = async (adjustmentAccount: any, variance: number, description: string) => {
+    if (!selectedFxGroup) return;
+    setIsProcessingFx(true);
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/resolve-adjust-match`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            companyId,
+            period,
+            accountId: selectedAccountId,
+            matchGroupId: selectedFxGroup.matchGroupId,
+            adjustmentAccount,
+            description,
+            variance
+          }),
+        }
+      );
+
+      if (response.ok) {
+        toast.success('Adjustment created and match confirmed!');
+        setShowFxDialog(false);
+        // Reload to refresh lists
+        loadReconciliationData();
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to create adjustment:', errorText);
+        toast.error('Failed to create adjustment. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error creating adjustment:', error);
+      toast.error('Network error creating adjustment.');
+    } finally {
+      setIsProcessingFx(false);
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!editingItem) return;
 
     console.log('Saving edited item:', editingItem, editingType);
-    
+
     // Get the original item for backend comparison
-    const originalItem = editingType === 'bank' 
-      ? selectedBankItem?.transaction 
+    const originalItem = editingType === 'bank'
+      ? selectedBankItem?.transaction
       : selectedLedgerItem?.entry;
-    
+
     if (!originalItem) {
       toast.error('Original item not found');
       return;
@@ -325,12 +482,12 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     // Optimistic update - update the item in place immediately in all tabs
     if (editingType === 'bank' && editingItem) {
       // Update in Needs Attention tab
-      setUnmatchedBankItems(prev => prev.map(item => 
-        item.transaction.id === editingItem.id 
+      setUnmatchedBankItems(prev => prev.map(item =>
+        item.transaction.id === editingItem.id
           ? { ...item, transaction: { ...item.transaction, ...editingItem } }
           : item
       ));
-      
+
       // Update in Follow-Up tab
       setFollowUpItems(prev => prev.map(followUpItem => {
         if (followUpItem.type === 'bank' && followUpItem.item?.transaction?.id === editingItem.id) {
@@ -344,7 +501,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         }
         return followUpItem;
       }));
-      
+
       // Update in Resolved tab
       setResolvedItems(prev => prev.map(resolvedItem => {
         if (resolvedItem.type === 'bank' && resolvedItem.item?.transaction?.id === editingItem.id) {
@@ -360,12 +517,12 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       }));
     } else if (editingType === 'ledger' && editingItem) {
       // Update in Needs Attention tab
-      setUnmatchedLedgerItems(prev => prev.map(item => 
-        item.entry.id === editingItem.id 
+      setUnmatchedLedgerItems(prev => prev.map(item =>
+        item.entry.id === editingItem.id
           ? { ...item, entry: { ...item.entry, ...editingItem } }
           : item
       ));
-      
+
       // Update in Follow-Up tab
       setFollowUpItems(prev => prev.map(followUpItem => {
         if (followUpItem.type === 'ledger' && followUpItem.item?.entry?.id === editingItem.id) {
@@ -379,7 +536,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         }
         return followUpItem;
       }));
-      
+
       // Update in Resolved tab
       setResolvedItems(prev => prev.map(resolvedItem => {
         if (resolvedItem.type === 'ledger' && resolvedItem.item?.entry?.id === editingItem.id) {
@@ -394,9 +551,9 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         return resolvedItem;
       }));
     }
-    
+
     setShowEditDialog(false);
-    
+
     // Call backend to persist changes
     try {
       const requestPayload = {
@@ -415,9 +572,9 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
           amount: editingItem.amount
         }
       };
-      
+
       console.log('📤 Sending update request:', requestPayload);
-      
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/update-transaction`,
         {
@@ -426,7 +583,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
             'Authorization': `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(requestPayload),
+          body: JSON.stringify({ ...requestPayload, accountId: selectedAccountId }),
         }
       );
 
@@ -437,14 +594,14 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         const errorText = await response.text();
         console.error('Failed to update transaction:', response.status, errorText);
         toast.error('Failed to save changes. Please try again.');
-        
+
         // Revert optimistic update on error - reload data from backend
         await loadReconciliationData();
       }
     } catch (error) {
       console.error('Error updating transaction:', error);
       toast.error('Network error. Please check your connection and try again.');
-      
+
       // Revert optimistic update on error - reload data from backend
       await loadReconciliationData();
     }
@@ -454,7 +611,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `approve-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - remove from unmatched immediately and add to resolved
     if (type === 'bank') {
       setUnmatchedBankItems(prev => prev.filter(i => i.transaction.id !== itemId));
@@ -475,8 +632,9 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         resolution: 'Transaction sent to Journal Entries section to be recorded'
       }]);
     }
-    
+
     try {
+      console.log('🔍 DEBUG: Sending approve-suggestion request with:', { companyId, period, accountId: selectedAccountId, type });
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/journal-entries/approve-suggestion`,
         {
@@ -488,6 +646,8 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
           body: JSON.stringify({
             companyId,
             period,
+            accountId: selectedAccountId,
+            sourceAccountName: selectedAccount?.name,  // Pass the account name for AI context
             type,
             item,
           }),
@@ -504,12 +664,12 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         // Revert optimistic update on error
         if (type === 'bank') {
           setUnmatchedBankItems(prev => [...prev, item as UnmatchedBank]);
-          setResolvedItems(prev => prev.filter(i => 
+          setResolvedItems(prev => prev.filter(i =>
             !(i.type === 'bank' && i.item?.transaction?.id === itemId)
           ));
         } else {
           setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
-          setResolvedItems(prev => prev.filter(i => 
+          setResolvedItems(prev => prev.filter(i =>
             !(i.type === 'ledger' && i.item?.entry?.id === itemId)
           ));
         }
@@ -520,12 +680,12 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       // Revert optimistic update on error
       if (type === 'bank') {
         setUnmatchedBankItems(prev => [...prev, item as UnmatchedBank]);
-        setResolvedItems(prev => prev.filter(i => 
+        setResolvedItems(prev => prev.filter(i =>
           !(i.type === 'bank' && i.item?.transaction?.id === itemId)
         ));
       } else {
         setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
-        setResolvedItems(prev => prev.filter(i => 
+        setResolvedItems(prev => prev.filter(i =>
           !(i.type === 'ledger' && i.item?.entry?.id === itemId)
         ));
       }
@@ -538,7 +698,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = item.entry.id;
     const actionKey = `reverse-ledger-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - remove from unmatched immediately and add to resolved
     setUnmatchedLedgerItems(prev => prev.filter(i => i.entry.id !== itemId));
     setResolvedItems(prev => [...prev, {
@@ -548,7 +708,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       status: 'resolved',
       resolution: 'Reversing journal entry sent to Journal Entries section'
     }]);
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/journal-entries/reverse-je`,
@@ -575,7 +735,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         toast.error('Failed to create reversing JE. Please try again.');
         // Revert optimistic update on error
         setUnmatchedLedgerItems(prev => [...prev, item]);
-        setResolvedItems(prev => prev.filter(i => 
+        setResolvedItems(prev => prev.filter(i =>
           !(i.type === 'ledger' && i.item?.entry?.id === itemId)
         ));
       }
@@ -584,7 +744,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       toast.error('Failed to create reversing JE. Please try again.');
       // Revert optimistic update on error
       setUnmatchedLedgerItems(prev => [...prev, item]);
-      setResolvedItems(prev => prev.filter(i => 
+      setResolvedItems(prev => prev.filter(i =>
         !(i.type === 'ledger' && i.item?.entry?.id === itemId)
       ));
     } finally {
@@ -596,7 +756,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `timing-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
     if (type === 'bank') {
       setUnmatchedBankItems(prev => prev.filter(i => i.transaction.id !== itemId));
@@ -619,7 +779,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         matchGroupId: `timing-${itemId}`
       }]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/mark-timing-difference`,
@@ -632,6 +792,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
           body: JSON.stringify({
             companyId,
             period,
+            accountId: selectedAccountId,
             type,
             item,
           }),
@@ -671,7 +832,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `ignore-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
     if (type === 'bank') {
       setUnmatchedBankItems(prev => prev.filter(i => i.transaction.id !== itemId));
@@ -694,7 +855,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         matchGroupId: `ignored-${itemId}`
       }]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/mark-ignored`,
@@ -707,6 +868,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
           body: JSON.stringify({
             companyId,
             period,
+            accountId: selectedAccountId,
             type,
             item,
           }),
@@ -784,6 +946,9 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       }]);
     }
 
+    setShowFollowUpDialog(false);
+    setFollowUpNote('');
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/request-information`,
@@ -796,6 +961,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
           body: JSON.stringify({
             companyId,
             period,
+            accountId: selectedAccountId,
             type,
             item,
             note: followUpNote,
@@ -805,19 +971,17 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
 
       if (response.ok) {
         toast.success('Flagged for follow-up.');
-        setShowFollowUpDialog(false);
-        setFollowUpNote('');
       } else {
         toast.error('Failed to flag for follow-up.');
         // Revert optimistic update
         if (type === 'bank' && item) {
           setUnmatchedBankItems(prev => [...prev, item as UnmatchedBank]);
-          setFollowUpItems(prev => prev.filter(i => 
+          setFollowUpItems(prev => prev.filter(i =>
             i.type === 'bank' ? (i.item as UnmatchedBank).transaction.id !== itemId : true
           ));
         } else if (type === 'ledger' && item) {
           setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
-          setFollowUpItems(prev => prev.filter(i => 
+          setFollowUpItems(prev => prev.filter(i =>
             i.type === 'ledger' ? (i.item as UnmatchedLedger).entry.id !== itemId : true
           ));
         }
@@ -828,22 +992,28 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       // Revert optimistic update
       if (type === 'bank' && item) {
         setUnmatchedBankItems(prev => [...prev, item as UnmatchedBank]);
-        setFollowUpItems(prev => prev.filter(i => 
+        setFollowUpItems(prev => prev.filter(i =>
           i.type === 'bank' ? (i.item as UnmatchedBank).transaction.id !== itemId : true
         ));
       } else if (type === 'ledger' && item) {
         setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
-        setFollowUpItems(prev => prev.filter(i => 
+        setFollowUpItems(prev => prev.filter(i =>
           i.type === 'ledger' ? (i.item as UnmatchedLedger).entry.id !== itemId : true
         ));
       }
     }
   };
 
-  const handleOpenMatchDialog = (item: UnmatchedBank) => {
-    setMatchingBankItem(item);
-    setSelectedBankItems([item]); // Pre-select the clicked item
-    setSelectedLedgerItems([]);
+  const handleOpenMatchDialog = (item: UnmatchedBank | UnmatchedLedger) => {
+    if ('transaction' in item) {
+      setMatchingBankItem(item);
+      setSelectedBankItems([item]);
+      setSelectedLedgerItems([]);
+    } else {
+      setMatchingBankItem(null);
+      setSelectedLedgerItems([item]);
+      setSelectedBankItems([]);
+    }
     setShowMatchDialog(true);
   };
 
@@ -879,19 +1049,60 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   // Group resolved items by matchGroupId
   const groupResolvedItems = () => {
     if (!resolvedItems) return [];
-    
+
     const groups = new Map<string, ResolvedItem[]>();
-    
+
     resolvedItems
-      .filter(item => item && item.item) // Filter out invalid items
+      .filter(item => (item && item.item) || (item && item.type === 'confirmed_match')) // Allow confirmed_match items too
       .forEach(item => {
+        // Handle 'confirmed_match' type (grouped item from backend)
+        if (item.type === 'confirmed_match') {
+          const groupId = item.id;
+          // Initialize group if needed
+          if (!groups.has(groupId)) {
+            groups.set(groupId, []);
+          }
+
+          // Decompose match group into individual virtual items for display
+          const group = (item as any).matchGroup;
+          if (group) {
+            // Add bank transactions
+            group.bankTransactions?.forEach((bt: any) => {
+              groups.get(groupId)!.push({
+                id: `virt-bank-${bt.id}-${groupId}`,
+                type: 'bank',
+                item: { transaction: bt },
+                matchGroupId: groupId,
+                markedAt: item.markedAt || (item as any).resolvedAt,
+                markedBy: item.markedBy || (item as any).resolvedBy,
+                notes: item.notes
+              } as any);
+            });
+
+            // Add ledger entries
+            group.ledgerEntries?.forEach((le: any) => {
+              groups.get(groupId)!.push({
+                id: `virt-ledger-${le.id}-${groupId}`,
+                type: 'ledger',
+                item: { entry: le },
+                matchGroupId: groupId,
+                markedAt: item.markedAt || (item as any).resolvedAt,
+                markedBy: item.markedBy || (item as any).resolvedBy,
+                notes: item.notes
+              } as any);
+            });
+          }
+          return;
+        }
+
+        // Existing logic for standard resolved items
         const groupId = item.matchGroupId || `single-${item.markedAt}`;
         if (!groups.has(groupId)) {
           groups.set(groupId, []);
         }
         groups.get(groupId)!.push(item);
       });
-    
+
     return Array.from(groups.entries()).map(([groupId, items]) => ({
       groupId,
       items,
@@ -927,10 +1138,10 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     // Optimistic update
     const bankIds = bankItems.map(i => i.transaction.id);
     const ledgerIds = ledgerItems.map(i => i.entry.id);
-    
+
     setUnmatchedBankItems(prev => prev.filter(i => !bankIds.includes(i.transaction.id)));
     setUnmatchedLedgerItems(prev => prev.filter(i => !ledgerIds.includes(i.entry.id)));
-    
+
     // Add to resolved items
     const newResolvedItems: any[] = [];
     bankItems.forEach(item => {
@@ -1000,14 +1211,14 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `reverse-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - find and remove from resolved, add back to unmatched
     const resolvedItemToRemove = resolvedItems.find(r => {
       if (!r?.item) return false;
       const id = 'transaction' in r.item ? r.item.transaction.id : r.item.entry.id;
       return id === itemId;
     });
-    
+
     if (resolvedItemToRemove) {
       setResolvedItems(prev => prev.filter(r => {
         if (!r?.item) return true;
@@ -1020,7 +1231,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
       }
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reverse-resolved`,
@@ -1076,19 +1287,19 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `reverse-followup-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - remove from follow-up items, add back to unmatched
     setFollowUpItems(prev => prev.filter(f => {
       const fItemId = f.type === 'bank' ? (f.item as UnmatchedBank).transaction.id : (f.item as UnmatchedLedger).entry.id;
       return fItemId !== itemId;
     }));
-    
+
     if (type === 'bank') {
       setUnmatchedBankItems(prev => [...prev, item as UnmatchedBank]);
     } else {
       setUnmatchedLedgerItems(prev => [...prev, item as UnmatchedLedger]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reverse-follow-up`,
@@ -1137,11 +1348,11 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   const handleReverseMatchGroup = async (groupId: string, items: ResolvedItem[]) => {
     const actionKey = `reverse-group-${groupId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - extract all items and restore them
     const bankItemsToRestore: UnmatchedBank[] = [];
     const ledgerItemsToRestore: UnmatchedLedger[] = [];
-    
+
     items.forEach(resolvedItem => {
       if (resolvedItem?.item) {
         if ('transaction' in resolvedItem.item) {
@@ -1151,13 +1362,13 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         }
       }
     });
-    
+
     // Remove from resolved items
     setResolvedItems(prev => prev.filter(r => r.matchGroupId !== groupId));
     // Add back to unmatched
     setUnmatchedBankItems(prev => [...prev, ...bankItemsToRestore]);
     setUnmatchedLedgerItems(prev => [...prev, ...ledgerItemsToRestore]);
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reverse-match-group`,
@@ -1200,7 +1411,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   const handleUnmatchGroup = async (matchGroupId: string) => {
     const actionKey = `unmatch-${matchGroupId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Find the pre-matched group
     const matchGroup = reconciliationResult?.pre_matched_items?.find(g => g.matchGroupId === matchGroupId);
     if (!matchGroup) {
@@ -1208,7 +1419,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
       setLoadingActions(prev => ({ ...prev, [actionKey]: false }));
       return;
     }
-    
+
     // Optimistically remove from pre-matched items
     setReconciliationResult(prev => {
       if (!prev) return prev;
@@ -1217,23 +1428,23 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         pre_matched_items: prev.pre_matched_items?.filter(g => g.matchGroupId !== matchGroupId) || [],
       };
     });
-    
+
     // Create unmatched items from the match group
     const unmatchedBankItems: UnmatchedBank[] = matchGroup.bankTransactions.map(transaction => ({
       transaction,
       suggested_action: 'Review this unmatched bank transaction',
     }));
-    
+
     const unmatchedLedgerItems: UnmatchedLedger[] = matchGroup.ledgerEntries.map(entry => ({
       entry,
       reason: 'Unmatched from pre-matched group',
       action: 'Review this unmatched ledger entry',
     }));
-    
+
     // Add to needs attention (unmatched items)
     setUnmatchedBankItems(prev => [...prev, ...unmatchedBankItems]);
     setUnmatchedLedgerItems(prev => [...prev, ...unmatchedLedgerItems]);
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/unmatch-group`,
@@ -1292,14 +1503,14 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     const itemId = type === 'bank' ? (item as UnmatchedBank).transaction.id : (item as UnmatchedLedger).entry.id;
     const actionKey = `delete-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update - remove from unmatched immediately
     if (type === 'bank') {
       setUnmatchedBankItems(prev => prev.filter(i => i.transaction.id !== itemId));
     } else {
       setUnmatchedLedgerItems(prev => prev.filter(i => i.entry.id !== itemId));
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/delete-transaction`,
@@ -1355,7 +1566,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
   const getResolutionStyling = (resolvedItem: ResolvedItem) => {
     const resolution = resolvedItem.resolution || '';
     const status = resolvedItem.status || '';
-    
+
     // Yellow for transactions sent to JE section
     if (resolution.includes('Journal Entries section')) {
       return {
@@ -1369,7 +1580,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         buttonText: 'text-yellow-700'
       };
     }
-    
+
     // Blue for timing differences
     if (status === 'timing_difference') {
       return {
@@ -1383,7 +1594,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         buttonText: 'text-blue-700'
       };
     }
-    
+
     // Gray for ignored items (subtle, less prominent)
     if (status === 'ignored') {
       return {
@@ -1397,7 +1608,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         buttonText: 'text-gray-600'
       };
     }
-    
+
     // Green for matched transactions (default)
     return {
       bgColor: 'bg-green-50',
@@ -1411,12 +1622,187 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     };
   };
 
-  if (isLoadingReconciliation) {
+  // Helper function to get clean, short resolution labels
+  const getCleanResolutionLabel = (resolution: string): string => {
+    if (!resolution) return 'Resolved';
+
+    // Map long texts to clean labels
+    if (resolution.includes('Journal Entries section')) {
+      return 'Sent to Journal';
+    }
+    if (resolution.includes('Reversing journal')) {
+      return 'Reversal Created';
+    }
+    if (resolution === 'timing_difference' || resolution === 'timing difference') {
+      return 'Timing Difference';
+    }
+    if (resolution === 'ignored') {
+      return 'Ignored';
+    }
+    if (resolution === 'matched' || resolution.includes('matched')) {
+      return 'Matched';
+    }
+
+    // Fallback: capitalize and clean up underscores
+    return resolution.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Placeholder functions for new pre-matched tab actions
+  const handleConfirmMatch = async (matchGroup: PreMatchedItem) => {
+    const actionKey = `confirm-${matchGroup.matchGroupId}`;
+    setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
+
+    // Optimistically remove from pre-matched items
+    setReconciliationResult(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        pre_matched_items: prev.pre_matched_items?.filter(g => g.matchGroupId !== matchGroup.matchGroupId) || [],
+      };
+    });
+
+    // Create resolved item from the match group
+    const resolvedItem = {
+      id: matchGroup.matchGroupId,
+      type: 'confirmed_match' as const,
+      bankTransaction: matchGroup.bankTransactions[0],
+      ledgerEntry: matchGroup.ledgerEntries[0],
+      matchGroup: matchGroup,
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: 'user',
+      notes: `Confirmed ${matchGroup.match_type || 'auto'} match`,
+    };
+
+    // Add to resolved items
+    setResolvedItems(prev => [...prev, resolvedItem]);
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/confirm-match`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            companyId,
+            period,
+            accountId: selectedAccountId,
+            matchGroupId: matchGroup.matchGroupId,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        toast.success('Match confirmed!');
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to confirm match:', response.status, errorText);
+        toast.error('Failed to confirm match. Rolling back...');
+        // Rollback: add back to pre_matched and remove from resolved
+        setReconciliationResult(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pre_matched_items: [...(prev.pre_matched_items || []), matchGroup],
+          };
+        });
+        setResolvedItems(prev => prev.filter(r => r.id !== matchGroup.matchGroupId));
+      }
+    } catch (error) {
+      console.error('Error confirming match:', error);
+      toast.error('Network error. Rolling back...');
+      // Rollback
+      setReconciliationResult(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          pre_matched_items: [...(prev.pre_matched_items || []), matchGroup],
+        };
+      });
+      setResolvedItems(prev => prev.filter(r => r.id !== matchGroup.matchGroupId));
+    } finally {
+      setLoadingActions(prev => ({ ...prev, [actionKey]: false }));
+    }
+  };
+
+  const handleConfirmAllMatches = async () => {
+    // Get all safe matches (high confidence, non-FX)
+    const items = reconciliationResult?.pre_matched_items || [];
+    const safeMatches = items.filter(i => {
+      const isFxVariance = i.match_type === 'fx' ||
+        i.match_type === 'fx_adjusted' ||
+        (i.explanation && i.explanation.includes('FX'));
+      const confidencePercent = i.confidence && i.confidence > 1 ? i.confidence : (i.confidence || 1) * 100;
+      const isLowConfidence = confidencePercent <= 85;
+      return !isFxVariance && !isLowConfidence;
+    });
+
+    if (safeMatches.length === 0) {
+      toast.info('No safe matches to confirm.');
+      return;
+    }
+
+    // Optimistically remove all safe matches from pre-matched items
+    setReconciliationResult(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        pre_matched_items: prev.pre_matched_items?.filter(g =>
+          !safeMatches.some(s => s.matchGroupId === g.matchGroupId)
+        ) || [],
+      };
+    });
+
+    // Create resolved items from all safe matches
+    const newResolvedItems = safeMatches.map(matchGroup => ({
+      id: matchGroup.matchGroupId,
+      type: 'confirmed_match' as const,
+      bankTransaction: matchGroup.bankTransactions[0],
+      ledgerEntry: matchGroup.ledgerEntries[0],
+      matchGroup: matchGroup,
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: 'user',
+      notes: `Bulk confirmed ${matchGroup.match_type || 'auto'} match`,
+    }));
+
+    // Add all to resolved items
+    setResolvedItems(prev => [...prev, ...newResolvedItems]);
+
+    toast.success(`${safeMatches.length} matches confirmed!`);
+
+    // Call API for each match (in background, don't wait)
+    safeMatches.forEach(async (matchGroup) => {
+      try {
+        await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/confirm-match`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              companyId,
+              period,
+              accountId: selectedAccountId,
+              matchGroupId: matchGroup.matchGroupId,
+            }),
+          }
+        );
+      } catch (error) {
+        console.error('Error confirming match:', matchGroup.matchGroupId, error);
+      }
+    });
+  };
+
+  if (isLoadingReconciliation || isLoadingAccounts || !selectedAccountId) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <Loader2 className="size-8 text-gray-400 animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-500">Loading reconciliation data...</p>
+          <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading reconciliation data...</p>
         </div>
       </div>
     );
@@ -1434,7 +1820,7 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
         <Alert>
           <AlertCircle className="size-4" />
           <AlertDescription>
-            No reconciliation found for {companyName} - {getPeriodLabel(period)}. 
+            No reconciliation found for {companyName} - {getPeriodLabel(period)}.
             Please run a bank reconciliation first.
           </AlertDescription>
         </Alert>
@@ -1442,1166 +1828,1193 @@ export function BankRecReview({ companyId, companyName, period, onBack }: BankRe
     );
   }
 
-  const needsAttentionCount = (unmatchedBankItems?.length || 0) + 
-                             (unmatchedLedgerItems?.length || 0);
+  const needsAttentionCount = (unmatchedBankItems?.length || 0) +
+    (unmatchedLedgerItems?.length || 0);
   const followUpCount = followUpItems?.length || 0;
   const resolvedCount = resolvedItems?.length || 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1600px] mx-auto pb-20">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button type="button" variant="ghost" onClick={onBack} className="gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onBack}
+            className="gap-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+          >
             <ArrowLeft className="size-4" />
             Back
           </Button>
-          <div>
-            <h1 className="text-3xl text-gray-900">Review Bank Reconciliation</h1>
-            <p className="text-gray-500 mt-1">{companyName} - {getPeriodLabel(period)}</p>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl font-bold font-outfit text-gray-900 dark:text-white tracking-tight">
+              Review Bank Reconciliation
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2">
+              <span className="font-medium">{companyName}</span>
+              <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+              <span>{new Date(period + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+            </p>
+          </motion.div>
         </div>
+
+        {/* Account Selector */}
+        {bankAccounts.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2 min-w-[200px] h-11 bg-white/50 dark:bg-black/20 backdrop-blur-sm border-gray-200 dark:border-white/10 hover:bg-white/80 dark:hover:bg-black/40 transition-all">
+                {isLoadingAccounts ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading accounts...
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-left truncate font-medium">
+                      {bankAccounts.find(a => a.id === selectedAccountId)?.name || 'Select Account'}
+                    </span>
+                    <ChevronDown className="size-4 opacity-50" />
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[250px] bg-white/90 dark:bg-black/90 backdrop-blur-xl border-gray-200 dark:border-white/10">
+              {bankAccounts.map((account) => (
+                <DropdownMenuItem
+                  key={account.id}
+                  onClick={() => setSelectedAccountId(account.id)}
+                  className={`
+                    cursor-pointer my-1
+                    ${selectedAccountId === account.id ? 'bg-purple-50 dark:bg-purple-900/20' : ''}
+                  `}
+                >
+                  <div className="flex flex-col flex-1">
+                    <span className="text-sm font-medium">{account.name}</span>
+                    <span className="text-xs text-gray-500">{account.code}</span>
+                  </div>
+                  {selectedAccountId === account.id && (
+                    <CheckCircle2 className="size-4 text-purple-600 dark:text-purple-400" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {/* Locked Banner */}
       {isMonthLocked && (
-        <div className="bg-gray-900 text-white p-3 rounded-lg border border-gray-800">
-          <div className="flex items-center gap-2">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gray-900/95 text-white p-4 rounded-xl border border-gray-800 shadow-lg backdrop-blur-md flex items-center gap-3"
+        >
+          <div className="p-2 bg-white/10 rounded-lg">
             <Lock className="size-4" />
-            <p className="text-sm">
-              Period locked · Closed {lockDetails?.closedAt ? new Date(lockDetails.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''} · Read-only mode
+          </div>
+          <div>
+            <p className="font-medium text-sm">Period Locked</p>
+            <p className="text-xs text-gray-400">
+              Closed {lockDetails?.closedAt ? new Date(lockDetails.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''} · Read-only mode
             </p>
           </div>
-        </div>
+        </motion.div>
       )}
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-gray-600">Pre-Matched</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl text-blue-600">{reconciliationResult?.pre_matched_items?.length || 0}</div>
-            <p className="text-xs text-gray-500 mt-1">Auto-matched groups</p>
+      {/* No Accounts State */}
+      {!isLoadingAccounts && bankAccounts.length === 0 && (
+        <Card className="border-0 shadow-lg bg-white/50 dark:bg-black/20 backdrop-blur-xl">
+          <CardContent className="py-16 text-center">
+            <div className="size-16 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="size-8 text-gray-400" />
+            </div>
+            <h3 className="text-xl font-medium text-gray-900 dark:text-white mb-2">No Bank Accounts Found</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
+              Please add bank accounts to your Chart of Accounts before reviewing reconciliation.
+            </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-gray-600">Needs Attention</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl text-red-600">{needsAttentionCount}</div>
-            <p className="text-xs text-gray-500 mt-1">Unmatched items</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-gray-600">Follow-Up Needed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl text-purple-600">{followUpCount}</div>
-            <p className="text-xs text-gray-500 mt-1">Awaiting information</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-gray-600">Resolved</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl text-green-600">{resolvedCount}</div>
-            <p className="text-xs text-gray-500 mt-1">Completed</p>
-          </CardContent>
-        </Card>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="needs-attention" className="gap-2">
-            <AlertCircle className="size-4" />
-            Needs Attention
-            {needsAttentionCount > 0 && (
-              <Badge variant="outline" className="ml-1 bg-red-50 text-red-700 border-red-200">
-                {needsAttentionCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="follow-up" className="gap-2">
-            <MessageSquare className="size-4" />
-            Follow-Up Needed
-            {followUpCount > 0 && (
-              <Badge variant="outline" className="ml-1 bg-purple-50 text-purple-700 border-purple-200">
-                {followUpCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="resolved" className="gap-2">
-            <CheckCircle2 className="size-4" />
-            Resolved / Completed
-            {resolvedCount > 0 && (
-              <Badge variant="outline" className="ml-1 bg-green-50 text-green-700 border-green-200">
-                {resolvedCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="pre-matched" className="gap-2">
-            <Link className="size-4" />
-            Pre-Matched
-            {(reconciliationResult?.pre_matched_items?.length || 0) > 0 && (
-              <Badge variant="outline" className="ml-1 bg-blue-50 text-blue-700 border-blue-200">
-                {reconciliationResult?.pre_matched_items?.length || 0}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      {/* Loading Accounts State */}
+      {isLoadingAccounts && (
+        <Card className="border-0 shadow-lg bg-white/50 dark:bg-black/20 backdrop-blur-xl">
+          <CardContent className="py-16 text-center">
+            <Loader2 className="size-12 text-[#65D3FD] mx-auto mb-4 animate-spin" />
+            <p className="text-gray-600 dark:text-gray-300 font-medium">Loading bank accounts...</p>
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Tab 1: Needs Attention */}
-        <TabsContent value="needs-attention" className="space-y-6">
-          {/* Unmatched Bank Transactions */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileSpreadsheet className="size-5 text-red-600" />
-                    Unmatched Bank Transactions
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These transactions appear in bank statements but have no matching ledger entries.
-                  </CardDescription>
+      {/* Main Content - Only show if account is selected */}
+      {!isLoadingAccounts && bankAccounts.length > 0 && selectedAccountId && (
+        <>
+          {/* Summary Stats */}
+          <div className="grid grid-cols-4 gap-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-black/40 backdrop-blur-xl border border-white/20 dark:border-white/5 shadow-sm hover:shadow-md transition-all duration-300"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#65D3FD]/10 rounded-full blur-3xl -mr-16 -mt-16 transition-opacity group-hover:opacity-100" />
+              <div className="p-6 relative z-10">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Pre-Matched</span>
+                  <div className="size-2 rounded-full bg-[#65D3FD] shadow-[0_0_10px_rgba(101,211,253,0.5)]" />
                 </div>
-                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                  {unmatchedBankItems?.length || 0} items
-                </Badge>
+                <div className="text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-1">
+                  {reconciliationResult?.pre_matched_items?.length || 0}
+                </div>
+                <p className="text-xs font-medium text-[#65D3FD] flex items-center gap-1">
+                  Auto-matched groups
+                </p>
               </div>
-            </CardHeader>
-            <CardContent>
-              {unmatchedBankItems && unmatchedBankItems.length > 0 ? (
-                <div className="space-y-3">
-                  {unmatchedBankItems.map((item, idx) => (
-                    <div key={idx} className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium text-gray-900">{item.transaction.description}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {item.transaction.date}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-gray-600 mb-2">
-                            <span className="font-medium">Suggested Action:</span> {item.suggested_action}
-                          </p>
-                          {item.suggested_je && (
-                            <div className="text-xs bg-white border border-red-200 rounded p-3 mt-2">
-                              <div className="font-medium text-gray-900 mb-1">AI Suggested Journal Entry:</div>
-                              <div className="space-y-1 text-gray-600">
-                                <div>• Debit: {item.suggested_je.debit_account}</div>
-                                <div>• Credit: {item.suggested_je.credit_account}</div>
-                                <div>• Amount: €{formatCurrency(item.suggested_je.amount)}</div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="ml-4">
-                          <div className={`text-lg font-medium mb-2 ${item.transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            €{formatCurrency(Math.abs(item.transaction.amount))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-2 border-t border-red-200">
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          className="gap-2 bg-green-600 hover:bg-green-700"
-                          onClick={() => handleApproveForJE(item, 'bank')}
-                          disabled={loadingActions[`approve-bank-${item.transaction.id}`]}
-                        >
-                          {loadingActions[`approve-bank-${item.transaction.id}`] ? (
-                            <>
-                              <Loader2 className="size-3 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <ThumbsUp className="size-3" />
-                              Approve for JE
-                            </>
-                          )}
-                        </Button>
+            </motion.div>
 
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2">
-                              <Link className="size-3" />
-                              Match
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-56">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenMatchDialog(item)}
-                            >
-                              <Link className="size-4 mr-2" />
-                              Match to Ledger Entry
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-black/40 backdrop-blur-xl border border-white/20 dark:border-white/5 shadow-sm hover:shadow-md transition-all duration-300"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-opacity group-hover:opacity-100" />
+              <div className="p-6 relative z-10">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Needs Attention</span>
+                  <div className="size-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+                </div>
+                <div className="text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-1">
+                  {needsAttentionCount}
+                </div>
+                <p className="text-xs font-medium text-red-500 flex items-center gap-1">
+                  Unmatched items
+                </p>
+              </div>
+            </motion.div>
 
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2"
-                          onClick={() => handleEditBankTransaction(item)}
-                          disabled={isMonthLocked}
-                        >
-                          <Edit2 className="size-3" />
-                          Edit / Correct
-                        </Button>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-black/40 backdrop-blur-xl border border-white/20 dark:border-white/5 shadow-sm hover:shadow-md transition-all duration-300"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-opacity group-hover:opacity-100" />
+              <div className="p-6 relative z-10">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Follow-Up Needed</span>
+                  <div className="size-2 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
+                </div>
+                <div className="text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-1">
+                  {followUpCount}
+                </div>
+                <p className="text-xs font-medium text-purple-500 flex items-center gap-1">
+                  Awaiting information
+                </p>
+              </div>
+            </motion.div>
 
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2" disabled={isMonthLocked}>
-                              More Actions
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="bottom" sideOffset={8} className="w-64">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsTimingDifference(item, 'bank')}
-                            >
-                              <Clock className="size-4 mr-2 text-blue-600" />
-                              <div>
-                                <div className="text-sm">Mark as Timing Difference</div>
-                                <div className="text-xs text-gray-500">Clears next month/period</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsIgnored(item, 'bank')}
-                            >
-                              <EyeOff className="size-4 mr-2 text-gray-600" />
-                              <div>
-                                <div className="text-sm">Mark as Non-Issue / Ignore</div>
-                                <div className="text-xs text-gray-500">Reviewed, no action needed</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenFollowUpDialog(item, 'bank')}
-                            >
-                              <MessageSquare className="size-4 mr-2 text-purple-600" />
-                              <div>
-                                <div className="text-sm">Request Information</div>
-                                <div className="text-xs text-gray-500">Flag for follow-up</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer text-red-600"
-                              onClick={() => handleDeleteTransaction(item, 'bank')}
-                            >
-                              <Trash2 className="size-4 mr-2" />
-                              <div>
-                                <div className="text-sm">Delete Transaction</div>
-                                <div className="text-xs text-gray-500">Permanently remove</div>
-                              </div>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="group relative overflow-hidden rounded-2xl bg-white/80 dark:bg-black/40 backdrop-blur-xl border border-white/20 dark:border-white/5 shadow-sm hover:shadow-md transition-all duration-300"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-opacity group-hover:opacity-100" />
+              <div className="p-6 relative z-10">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Resolved</span>
+                  <div className="size-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+                </div>
+                <div className="text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-1">
+                  {resolvedCount}
+                </div>
+                <p className="text-xs font-medium text-green-500 flex items-center gap-1">
+                  Completed
+                </p>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="space-y-6">
+            <TabsList className="bg-gray-100/80 dark:bg-white/[0.03] border border-gray-200/50 dark:border-white/10 h-14 p-1.5 rounded-2xl gap-1.5 w-auto">
+              <TabsTrigger
+                value="needs-attention"
+                className="h-11 rounded-xl px-5 font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:ring-2 data-[state=active]:ring-[#65D3FD]/50 dark:data-[state=active]:bg-white/10 dark:data-[state=active]:ring-[#65D3FD]/30 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="size-4" />
+                  Needs Attention
+                  {needsAttentionCount > 0 && (
+                    <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-100 dark:bg-red-500/20 px-1.5 text-xs font-semibold text-red-600 dark:text-red-400">
+                      {needsAttentionCount}
+                    </span>
+                  )}
+                </div>
+              </TabsTrigger>
+              <TabsTrigger
+                value="follow-up"
+                className="h-11 rounded-xl px-5 font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:ring-2 data-[state=active]:ring-[#65D3FD]/50 dark:data-[state=active]:bg-white/10 dark:data-[state=active]:ring-[#65D3FD]/30 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="size-4" />
+                  Follow-Up Needed
+                  {followUpCount > 0 && (
+                    <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-500/20 px-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400">
+                      {followUpCount}
+                    </span>
+                  )}
+                </div>
+              </TabsTrigger>
+              <TabsTrigger
+                value="resolved"
+                className="h-11 rounded-xl px-5 font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:ring-2 data-[state=active]:ring-[#65D3FD]/50 dark:data-[state=active]:bg-white/10 dark:data-[state=active]:ring-[#65D3FD]/30 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4" />
+                  Resolved / Completed
+                  {resolvedCount > 0 && (
+                    <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/20 px-1.5 text-xs font-semibold text-green-600 dark:text-green-400">
+                      {resolvedCount}
+                    </span>
+                  )}
+                </div>
+              </TabsTrigger>
+              <TabsTrigger
+                value="pre-matched"
+                className="h-11 rounded-xl px-5 font-medium text-gray-500 hover:text-gray-700 hover:bg-white/50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5 data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:ring-2 data-[state=active]:ring-[#65D3FD]/50 dark:data-[state=active]:bg-white/10 dark:data-[state=active]:ring-[#65D3FD]/30 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <Link className="size-4" />
+                  Pre-Matched
+                  {(reconciliationResult?.pre_matched_items?.length || 0) > 0 && (
+                    <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20 px-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+                      {reconciliationResult?.pre_matched_items?.length || 0}
+                    </span>
+                  )}
+                </div>
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Tab 1: Needs Attention */}
+            <TabsContent value="needs-attention" className="mt-0">
+              <div className="grid grid-cols-2 gap-8">
+                {/* Left Column: Unmatched Bank Transactions */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-white/5">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <FileSpreadsheet className="size-5 text-red-500" />
+                        Bank Transactions
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Unmatched items from bank statement</p>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">All bank transactions have been matched!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/30">
+                      {unmatchedBankItems?.length || 0}
+                    </Badge>
+                  </div>
 
-          {/* Unmatched Ledger Entries */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <BookOpen className="size-5 text-amber-600" />
-                    Unmatched Ledger Entries
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These entries appear in the general ledger but have no matching bank transactions.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                  {unmatchedLedgerItems?.length || 0} items
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {unmatchedLedgerItems && unmatchedLedgerItems.length > 0 ? (
-                <div className="space-y-3">
-                  {unmatchedLedgerItems.map((item, idx) => (
-                    <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium text-gray-900">{item.entry.description}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {item.entry.date}
-                            </Badge>
-                          </div>
-                          <div className="space-y-1 text-xs text-gray-600">
-                            <p>
-                              <span className="font-medium">Reason:</span> {item.reason}
-                            </p>
-                            <p>
-                              <span className="font-medium">Recommended Action:</span> {item.action}
-                            </p>
-                            {item.entry.account && (
-                              <p>
-                                <span className="font-medium">Account:</span> {item.entry.account}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className={`text-lg font-medium ${item.entry.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            €{formatCurrency(Math.abs(item.entry.amount))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-2 border-t border-amber-200">
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                          onClick={() => handleReverseJE(item)}
-                          disabled={isMonthLocked || loadingActions[`reverse-ledger-${item.entry.id}`]}
-                        >
-                          {loadingActions[`reverse-ledger-${item.entry.id}`] ? (
-                            <>
-                              <Loader2 className="size-3 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Undo2 className="size-3" />
-                              Reverse JE
-                            </>
-                          )}
-                        </Button>
-
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2"
-                          onClick={() => handleEditLedgerEntry(item)}
-                          disabled={isMonthLocked}
-                        >
-                          <Edit2 className="size-3" />
-                          Edit / Correct
-                        </Button>
-
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2" disabled={isMonthLocked}>
-                              More Actions
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="bottom" sideOffset={8} className="w-64">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsTimingDifference(item, 'ledger')}
-                            >
-                              <Clock className="size-4 mr-2 text-blue-600" />
-                              <div>
-                                <div className="text-sm">Mark as Timing Difference</div>
-                                <div className="text-xs text-gray-500">Clears next month/period</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsIgnored(item, 'ledger')}
-                            >
-                              <EyeOff className="size-4 mr-2 text-gray-600" />
-                              <div>
-                                <div className="text-sm">Mark as Non-Issue / Ignore</div>
-                                <div className="text-xs text-gray-500">Reviewed, no action needed</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenFollowUpDialog(item, 'ledger')}
-                            >
-                              <MessageSquare className="size-4 mr-2 text-purple-600" />
-                              <div>
-                                <div className="text-sm">Request Information</div>
-                                <div className="text-xs text-gray-500">Flag for follow-up</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer text-red-600"
-                              onClick={() => handleDeleteTransaction(item, 'ledger')}
-                            >
-                              <Trash2 className="size-4 mr-2" />
-                              <div>
-                                <div className="text-sm">Delete Transaction</div>
-                                <div className="text-xs text-gray-500">Permanently remove</div>
-                              </div>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">All ledger entries have been matched!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 2: Follow-Up Needed */}
-        <TabsContent value="follow-up">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <MessageSquare className="size-5 text-purple-600" />
-                    Follow-Up Needed
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    Items awaiting vendor documents, client responses, or team clarification.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                  {followUpCount} items
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {followUpCount > 0 ? (
-                <div className="space-y-3">
-                  {followUpItems.map((followUpItem, idx) => {
-                    const item = followUpItem.item;
-                    const isBank = followUpItem.type === 'bank';
-                    const transaction = isBank ? (item as UnmatchedBank).transaction : (item as UnmatchedLedger).entry;
-                    
-                    return (
-                      <div key={idx} className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="outline" className="text-xs bg-purple-100 text-purple-700 border-purple-300">
-                                {isBank ? 'Bank' : 'Ledger'}
-                              </Badge>
-                              <span className="text-sm font-medium text-gray-900">{transaction.description}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {transaction.date}
-                              </Badge>
-                            </div>
-                            <div className="text-xs bg-white border border-purple-200 rounded p-3 mt-2">
-                              <div className="font-medium text-gray-900 mb-1">Follow-up Note:</div>
-                              <p className="text-gray-600">{followUpItem.note}</p>
-                              <p className="text-gray-400 mt-2">Flagged on: {new Date(followUpItem.markedAt).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <div className={`text-lg font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              €{formatCurrency(Math.abs(transaction.amount))}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 pt-2 border-t border-purple-200">
-                          <Button 
-                            type="button"
-                            size="sm" 
-                            className="gap-2 bg-red-600 hover:bg-red-700"
-                            onClick={() => handleReverseFollowUp(followUpItem)}
-                            disabled={isMonthLocked || loadingActions[`reverse-followup-${followUpItem.type}-${transaction.id}`]}
+                  <AnimatePresence mode="popLayout">
+                    {unmatchedBankItems && unmatchedBankItems.length > 0 ? (
+                      <motion.div
+                        className="space-y-3"
+                        initial="hidden"
+                        animate="visible"
+                        variants={{
+                          visible: { transition: { staggerChildren: 0.05 } }
+                        }}
+                      >
+                        {unmatchedBankItems.map((item, idx) => (
+                          <motion.div
+                            key={`${item.transaction.id}-${idx}`}
+                            variants={{
+                              hidden: { opacity: 0, y: 10 },
+                              visible: { opacity: 1, y: 0 }
+                            }}
+                            layout
                           >
-                            {loadingActions[`reverse-followup-${followUpItem.type}-${transaction.id}`] ? (
-                              <>
-                                <Loader2 className="size-3 animate-spin" />
-                                Processing...
-                              </>
-                            ) : (
-                              <>
-                                <X className="size-3" />
-                                Reverse
-                              </>
-                            )}
-                          </Button>
+                            <UnmatchedItemCard
+                              type="bank"
+                              currency={accountCurrency}
+                              item={{
+                                data: {
+                                  id: item.transaction.id,
+                                  date: item.transaction.date,
+                                  description: item.transaction.description,
+                                  amount: item.transaction.amount,
+                                },
+                                suggested_je: item.suggested_je
+                              }}
+                              loadingActions={loadingActions}
+                              isMonthLocked={isMonthLocked}
+                              onApproveJE={() => handleApproveForJE(item, 'bank')}
+                              onMatch={() => handleOpenMatchDialog(item)}
+                              onEdit={() => handleEditBankTransaction(item)}
+                              onTimingDifference={() => handleMarkAsTimingDifference(item, 'bank')}
+                              onIgnore={() => handleMarkAsIgnored(item, 'bank')}
+                              onRequestInfo={() => handleOpenFollowUpDialog(item, 'bank')}
+                              onDelete={() => handleDeleteTransaction(item, 'bank')}
+                            />
+                          </motion.div>
+                        ))}
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-center py-12 rounded-xl bg-white/50 dark:bg-white/5 border border-dashed border-gray-200 dark:border-white/10"
+                      >
+                        <div className="size-12 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mx-auto mb-3">
+                          <CheckCircle2 className="size-6 text-green-600 dark:text-green-400" />
                         </div>
-                      </div>
-                    );
-                  })}
+                        <p className="font-medium text-gray-900 dark:text-white">All caught up!</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">No unmatched bank transactions found.</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">No items waiting for follow-up!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        {/* Tab 3: Resolved/Completed */}
-        <TabsContent value="resolved">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle2 className="size-5 text-green-600" />
-                    Resolved / Completed
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    All reconciled and cleared items for this period.
-                  </CardDescription>
+                {/* Right Column: Unmatched Ledger Entries */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-white/5">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <BookOpen className="size-5 text-amber-500" />
+                        Ledger Entries
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Unmatched items from general ledger</p>
+                    </div>
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-900/30">
+                      {unmatchedLedgerItems?.length || 0}
+                    </Badge>
+                  </div>
+
+                  <AnimatePresence mode="popLayout">
+                    {unmatchedLedgerItems && unmatchedLedgerItems.length > 0 ? (
+                      <motion.div
+                        className="space-y-3"
+                        initial="hidden"
+                        animate="visible"
+                        variants={{
+                          visible: { transition: { staggerChildren: 0.05 } }
+                        }}
+                      >
+                        {unmatchedLedgerItems.map((item, idx) => (
+                          <motion.div
+                            key={`${item.entry.id}-${idx}`}
+                            variants={{
+                              hidden: { opacity: 0, y: 10 },
+                              visible: { opacity: 1, y: 0 }
+                            }}
+                            layout
+                          >
+                            <UnmatchedItemCard
+                              type="ledger"
+                              currency={accountCurrency}
+                              item={{
+                                data: {
+                                  id: item.entry.id,
+                                  date: item.entry.date,
+                                  description: item.entry.description,
+                                  amount: item.entry.amount,
+                                }
+                              }}
+                              loadingActions={loadingActions}
+                              isMonthLocked={isMonthLocked}
+                              onApproveJE={() => handleReverseJE(item)}
+                              onMatch={() => handleOpenMatchDialog(item)}
+                              onEdit={() => handleEditLedgerEntry(item)}
+                              onTimingDifference={() => handleMarkAsTimingDifference(item, 'ledger')}
+                              onIgnore={() => handleMarkAsIgnored(item, 'ledger')}
+                              onRequestInfo={() => handleOpenFollowUpDialog(item, 'ledger')}
+                              onDelete={() => handleDeleteTransaction(item, 'ledger')}
+                              primaryActionLabel="Reverse JE"
+                              primaryActionIcon={<Undo2 className="size-3" />}
+                              primaryActionClassName="gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 dark:text-purple-300 dark:border-purple-800"
+                            />
+                          </motion.div>
+                        ))}
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-center py-12 rounded-xl bg-white/50 dark:bg-white/5 border border-dashed border-gray-200 dark:border-white/10"
+                      >
+                        <div className="size-12 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mx-auto mb-3">
+                          <CheckCircle2 className="size-6 text-green-600 dark:text-green-400" />
+                        </div>
+                        <p className="font-medium text-gray-900 dark:text-white">All caught up!</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">No unmatched ledger entries found.</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  {resolvedCount} items
-                </Badge>
               </div>
-            </CardHeader>
-            <CardContent>
-              {resolvedCount > 0 ? (
-                <div className="space-y-3">
-                  {groupResolvedItems().map((group, groupIdx) => {
-                    const { groupId, items } = group;
-                    const isExpanded = expandedGroups.has(groupId);
-                    const isMatchGroup = items.length > 1 && items[0].matchGroupId;
-                    
-                    // Calculate totals for the group
-                    const bankItems = items.filter(i => i && i.item && i.type === 'bank');
-                    const ledgerItems = items.filter(i => i && i.item && i.type === 'ledger');
-                    const bankTotal = bankItems.reduce((sum, item) => {
-                      if (!item?.item) return sum;
-                      const transaction = (item.item as UnmatchedBank)?.transaction;
-                      if (!transaction) return sum;
-                      return sum + Math.abs(transaction.amount);
-                    }, 0);
-                    const ledgerTotal = ledgerItems.reduce((sum, item) => {
-                      if (!item?.item) return sum;
-                      const entry = (item.item as UnmatchedLedger)?.entry;
-                      if (!entry) return sum;
-                      return sum + Math.abs(entry.amount);
-                    }, 0);
-                    
-                    if (isMatchGroup) {
-                      // Show grouped match - with detailed view like Pre-Matched
-                      return (
-                        <div key={groupIdx} className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <CheckCircle2 className="size-4 text-yellow-600" />
-                                <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-700 border-yellow-300">
-                                  Matched
-                                </Badge>
-                                <span className="text-sm font-medium text-gray-900">
-                                  {bankItems.length} Bank ↔ {ledgerItems.length} Ledger
-                                </span>
-                                <Badge variant="outline" className="text-xs">
-                                  {items[0].markedAt ? new Date(items[0].markedAt).toLocaleDateString() : ''}
-                                </Badge>
-                              </div>
-                              
-                              <div className="text-xs bg-white border border-yellow-200 rounded p-3 mt-2">
-                                <div className="font-medium text-gray-900 mb-2">Match Summary:</div>
-                                <div className="space-y-1 text-gray-600">
-                                  <p>Bank Total: €{formatCurrency(bankTotal)}</p>
-                                  <p>Ledger Total: €{formatCurrency(ledgerTotal)}</p>
-                                </div>
-                              </div>
+            </TabsContent>
 
-                              {/* Bank Transactions */}
-                              {bankItems.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  <div className="text-xs font-medium text-gray-700">Bank Transactions:</div>
-                                  {bankItems.map((resolvedItem, itemIdx) => {
-                                    const item = resolvedItem?.item;
-                                    const transaction = (item as UnmatchedBank)?.transaction;
-                                    if (!transaction) return null;
-                                    
-                                    return (
-                                      <div key={itemIdx} className="p-2 bg-white border border-yellow-200 rounded text-xs">
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700">
-                                              Bank
-                                            </Badge>
-                                            <span className="text-gray-900">{transaction.description}</span>
-                                            <span className="text-gray-500">{transaction.date}</span>
-                                          </div>
-                                          <span className={`font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            €{formatCurrency(Math.abs(transaction.amount))}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
+            {/* Tab 2: Follow-Up Needed */}
+            <TabsContent value="follow-up" className="mt-0">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-white/5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <MessageSquare className="size-5 text-purple-600" />
+                      Follow-Up Items
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Items awaiting external action or clarification</p>
+                  </div>
+                  <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-900/30">
+                    {followUpCount} items
+                  </Badge>
+                </div>
 
-                              {/* Ledger Entries */}
-                              {ledgerItems.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  <div className="text-xs font-medium text-gray-700">Ledger Entries:</div>
-                                  {ledgerItems.map((resolvedItem, itemIdx) => {
-                                    const item = resolvedItem?.item;
-                                    const entry = (item as UnmatchedLedger)?.entry;
-                                    if (!entry) return null;
-                                    
-                                    return (
-                                      <div key={itemIdx} className="p-2 bg-white border border-yellow-200 rounded text-xs">
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700">
-                                              Ledger
-                                            </Badge>
-                                            <span className="text-gray-900">{entry.description}</span>
-                                            <span className="text-gray-500">{entry.date}</span>
-                                          </div>
-                                          <span className={`font-medium ${entry.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            €{formatCurrency(Math.abs(entry.amount))}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
+                <AnimatePresence mode="popLayout">
+                  {followUpCount > 0 ? (
+                    <motion.div
+                      className="space-y-3"
+                      initial="hidden"
+                      animate="visible"
+                      variants={{
+                        visible: { transition: { staggerChildren: 0.05 } }
+                      }}
+                    >
+                      {followUpItems.map((followUpItem, idx) => {
+                        const item = followUpItem.item;
+                        const isBank = followUpItem.type === 'bank';
+                        const transaction = isBank ? (item as UnmatchedBank).transaction : (item as UnmatchedLedger).entry;
 
-                              {/* Resolution Details */}
-                              {items[0].resolution && (
-                                <div className="text-xs bg-white border border-yellow-200 rounded p-3 mt-3">
-                                  <div className="font-medium text-gray-900 mb-1">Resolution:</div>
-                                  <p className="text-gray-600">{items[0].resolution}</p>
-                                  <p className="text-gray-400 mt-2">Resolved on: {new Date(items[0].markedAt).toLocaleDateString()}</p>
+                        return (
+                          <motion.div
+                            key={`${transaction.id}-${idx}`}
+                            layout
+                            variants={{
+                              hidden: { opacity: 0, scale: 0.95 },
+                              visible: { opacity: 1, scale: 1 }
+                            }}
+                            className="p-5 bg-white/60 dark:bg-black/40 backdrop-blur-md border border-purple-100 dark:border-purple-900/30 rounded-xl shadow-sm hover:shadow-md transition-all group"
+                          >
+                            <div className="flex items-start justify-between mb-4">
+                              <div className="flex-1 space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <Badge variant="outline" className={`
+                                        text-xs border px-2 py-0.5 rounded-full
+                                        ${isBank
+                                      ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800'}
+                                     `}>
+                                    {isBank ? 'Bank Transaction' : 'Ledger Entry'}
+                                  </Badge>
+                                  <span className="text-sm text-gray-400">|</span>
+                                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono">{transaction.date}</span>
+                                  <span className="text-sm text-gray-400">|</span>
+                                  <span className="text-xs text-gray-400">Flagged on {new Date(followUpItem.markedAt).toLocaleDateString()}</span>
                                 </div>
-                              )}
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-lg font-medium text-yellow-600">
-                                €{formatCurrency(bankTotal)}
+
+                                <div className="flex justify-between items-start pr-4">
+                                  <h4 className="font-medium text-gray-900 dark:text-white text-base">
+                                    {transaction.description}
+                                  </h4>
+                                  <span className={`text-lg font-bold font-mono tracking-tight ${transaction.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                                    {formatCurrency(transaction.amount)}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 bg-gray-50 dark:bg-white/5 rounded-xl p-4 border border-gray-100 dark:border-white/5 flex gap-4">
+                                  <div className="shrink-0 size-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                                    <MessageSquare className="size-4 text-purple-600 dark:text-purple-400" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Request Note</p>
+                                    <p className="text-sm text-gray-900 dark:text-white leading-relaxed">{followUpItem.note}</p>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </div>
-                      );
-                    } else {
-                      // Show single item (not a match group)
-                      const resolvedItem = items[0];
-                      const item = resolvedItem.item;
-                      
-                      // Handle different item types: vendor (AP Rec), bank, ledger
-                      let transaction;
-                      let itemTypeLabel;
-                      
-                      if (resolvedItem.type === 'vendor') {
-                        // AP Reconciliation: transaction is directly on item
-                        transaction = (item as any)?.transaction;
-                        itemTypeLabel = 'Vendor';
-                      } else if (resolvedItem.type === 'bank') {
-                        transaction = (item as UnmatchedBank)?.transaction;
-                        itemTypeLabel = 'Bank';
-                      } else {
-                        // ledger
-                        transaction = (item as UnmatchedLedger)?.entry;
-                        itemTypeLabel = 'Ledger';
-                      }
-                      
-                      const styling = getResolutionStyling(resolvedItem);
-                      
-                      // Skip if transaction is undefined
-                      if (!transaction) {
-                        console.warn('Transaction is undefined in resolved item:', resolvedItem);
-                        return null;
-                      }
-                      
-                      return (
-                        <div key={groupIdx} className={`p-4 ${styling.bgColor} border ${styling.borderColor} rounded-lg`}>
-                          <div className="flex items-start justify-between mb-3">
+
+                            <div className="flex justify-end pt-3 border-t border-gray-100 dark:border-white/5 gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                onClick={() => handleReverseFollowUp(followUpItem)}
+                                disabled={isMonthLocked || loadingActions[`reverse-followup-${followUpItem.type}-${transaction.id}`]}
+                              >
+                                {loadingActions[`reverse-followup-${followUpItem.type}-${transaction.id}`] ? (
+                                  <>
+                                    <Loader2 className="size-3 animate-spin" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Undo2 className="size-3" />
+                                    Return to Review
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center py-16 rounded-xl bg-white/50 dark:bg-white/5 border border-dashed border-gray-200 dark:border-white/10"
+                    >
+                      <div className="size-16 rounded-full bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center mx-auto mb-4">
+                        <MessageSquare className="size-8 text-purple-500 dark:text-purple-400" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white">All Clear</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mt-1">
+                        No items are currently flagged for follow-up.
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </TabsContent>
+
+            {/* Tab 3: Resolved/Completed */}
+            <TabsContent value="resolved" className="mt-0">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-white/5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <CheckCircle2 className="size-5 text-green-600" />
+                      Resolved Items
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Reconciled and cleared transactions</p>
+                  </div>
+                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-900/30">
+                    {resolvedCount} items
+                  </Badge>
+                </div>
+
+                <AnimatePresence mode="popLayout">
+                  {resolvedCount > 0 ? (
+                    <motion.div
+                      className="space-y-3"
+                      initial="hidden"
+                      animate="visible"
+                      variants={{
+                        visible: { transition: { staggerChildren: 0.05 } }
+                      }}
+                    >
+                      {groupResolvedItems().map((group, groupIdx) => {
+                        const { groupId, items } = group;
+                        // const isExpanded = expandedGroups.has(groupId); // Not currently used in old logic but good to have if we add expand/collapse
+                        const isMatchGroup = items.length > 1 && items[0].matchGroupId;
+
+                        // Calculate totals for the group
+                        const bankItems = items.filter(i => i && i.item && i.type === 'bank');
+                        const ledgerItems = items.filter(i => i && i.item && i.type === 'ledger');
+                        const bankTotal = bankItems.reduce((sum, item) => {
+                          if (!item?.item) return sum;
+                          const transaction = (item.item as UnmatchedBank)?.transaction;
+                          if (!transaction) return sum;
+                          return sum + Math.abs(transaction.amount);
+                        }, 0);
+                        const ledgerTotal = ledgerItems.reduce((sum, item) => {
+                          if (!item?.item) return sum;
+                          const entry = (item.item as UnmatchedLedger)?.entry;
+                          if (!entry) return sum;
+                          return sum + Math.abs(entry.amount);
+                        }, 0);
+
+                        if (isMatchGroup) {
+                          // Show grouped match - with detailed view like Pre-Matched
+                          return (
+                            <motion.div
+                              key={`group-${groupId}-${groupIdx}`}
+                              layout
+                              variants={{
+                                hidden: { opacity: 0, scale: 0.95 },
+                                visible: { opacity: 1, scale: 1 }
+                              }}
+                              className="p-5 bg-yellow-50/50 dark:bg-yellow-900/10 backdrop-blur-md border border-yellow-200 dark:border-yellow-900/30 rounded-xl shadow-sm hover:shadow-md transition-all"
+                            >
+                              <div className="flex items-start justify-between mb-4">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <CheckCircle2 className="size-4 text-yellow-600 dark:text-yellow-400" />
+                                    <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/40 dark:text-yellow-300 dark:border-yellow-800">
+                                      Matched Group
+                                    </Badge>
+                                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                      {bankItems.length} Bank ↔ {ledgerItems.length} Ledger
+                                    </span>
+                                    <span className="text-gray-400 mx-2">•</span>
+                                    <span className="text-xs text-gray-400">
+                                      {items[0].markedAt ? new Date(items[0].markedAt).toLocaleDateString() : ''}
+                                    </span>
+                                  </div>
+
+                                  <div className="text-xs bg-white/50 dark:bg-black/20 border border-yellow-200 dark:border-yellow-900/30 rounded-lg p-3 mt-3">
+                                    <div className="flex items-center gap-4 text-gray-600 dark:text-gray-400">
+                                      <div className="font-medium">Summary:</div>
+                                      <div>Bank: <span className="font-mono text-gray-900 dark:text-white">{formatCurrency(bankTotal, accountCurrency)}</span></div>
+                                      <div>Ledger: <span className="font-mono text-gray-900 dark:text-white">{formatCurrency(ledgerTotal, accountCurrency)}</span></div>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4 mt-4">
+                                    {/* Bank Transactions */}
+                                    {bankItems.length > 0 && (
+                                      <div className="space-y-2">
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider pl-1">Bank Transactions</div>
+                                        {bankItems.map((resolvedItem, itemIdx) => {
+                                          const item = resolvedItem?.item;
+                                          const transaction = (item as UnmatchedBank)?.transaction;
+                                          if (!transaction) return null;
+
+                                          return (
+                                            <div key={itemIdx} className="p-2.5 bg-white dark:bg-black/20 border border-gray-100 dark:border-white/5 rounded-lg text-xs flex justify-between items-center hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                              <div className="flex flex-col gap-0.5">
+                                                <span className="font-medium text-gray-900 dark:text-white line-clamp-1">{transaction.description}</span>
+                                                <span className="text-gray-500 font-mono text-[10px]">{transaction.date}</span>
+                                              </div>
+                                              <span className={`font-mono font-medium ${transaction.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                                                {formatCurrency(Math.abs(transaction.amount), accountCurrency)}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    {/* Ledger Entries */}
+                                    {ledgerItems.length > 0 && (
+                                      <div className="space-y-2">
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider pl-1">Ledger Entries</div>
+                                        {ledgerItems.map((resolvedItem, itemIdx) => {
+                                          const item = resolvedItem?.item;
+                                          const entry = (item as UnmatchedLedger)?.entry;
+                                          if (!entry) return null;
+
+                                          return (
+                                            <div key={itemIdx} className="p-2.5 bg-white dark:bg-black/20 border border-gray-100 dark:border-white/5 rounded-lg text-xs flex justify-between items-center hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                              <div className="flex flex-col gap-0.5">
+                                                <span className="font-medium text-gray-900 dark:text-white line-clamp-1">{entry.description}</span>
+                                                <span className="text-gray-500 font-mono text-[10px]">{entry.date}</span>
+                                              </div>
+                                              <span className={`font-mono font-medium ${entry.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                                                {formatCurrency(Math.abs(entry.amount), accountCurrency)}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="ml-4">
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    onClick={() => handleUnmatchGroup(groupId)}
+                                    disabled={isMonthLocked || loadingActions[`unmatch-${groupId}`]}
+                                    title="Unmatch Group"
+                                  >
+                                    <Undo2 className="size-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        }
+
+                        // Regular single matched item (e.g. marked as something else or just single)
+                        // ... but wait, Bank Rec typically matches 1 to 1 or 1 to many. 
+                        // If it's a single resolved item (not in a match group), strictly speaking it might be "Ignored" or "Timing Difference" or "Single Match"?
+                        // The implementation below handles standard ResolvedItems.
+
+                        const resolvedItem = items[0];
+                        const item = resolvedItem?.item;
+                        const isBank = resolvedItem.type === 'bank';
+                        const transaction = isBank ? (item as UnmatchedBank)?.transaction : (item as UnmatchedLedger)?.entry;
+
+                        if (!transaction) return null;
+
+                        // Determine status badge color
+                        let statusColor = 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
+                        if (resolvedItem.resolution === 'timing_difference') {
+                          statusColor = 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800';
+                        } else if (resolvedItem.resolution === 'ignored') {
+                          statusColor = 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-800/50 dark:text-gray-400 dark:border-gray-700';
+                        }
+
+                        return (
+                          <motion.div
+                            key={`single-${groupId}-${groupIdx}`}
+                            layout
+                            variants={{
+                              hidden: { opacity: 0, scale: 0.95 },
+                              visible: { opacity: 1, scale: 1 }
+                            }}
+                            className="p-4 bg-white/60 dark:bg-black/40 backdrop-blur-md border border-gray-100 dark:border-white/10 rounded-xl shadow-sm hover:shadow-md transition-all group flex items-start justify-between"
+                          >
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-2">
-                                <CheckCircle2 className={`size-4 ${styling.iconColor}`} />
-                                <Badge variant="outline" className={`text-xs ${styling.badgeBg} ${styling.badgeText} ${styling.badgeBorder}`}>
-                                  {itemTypeLabel}
+                                <Badge variant="outline" className={`text-xs px-2 py-0.5 rounded-full ${statusColor}`}>
+                                  {getCleanResolutionLabel(resolvedItem.resolution || '')}
                                 </Badge>
-                                <span className="text-sm font-medium text-gray-900">{transaction.description}</span>
-                                <Badge variant="outline" className="text-xs">
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">{transaction.description}</span>
+                                <Badge variant="outline" className="text-xs border-transparent bg-gray-50 dark:bg-white/5 text-gray-500">
                                   {transaction.date}
                                 </Badge>
                               </div>
-                              <div className={`text-xs bg-white border ${styling.borderColor} rounded p-3 mt-2`}>
-                                <div className="font-medium text-gray-900 mb-1">Resolution:</div>
-                                <p className="text-gray-600">{resolvedItem.resolution}</p>
-                                <p className="text-gray-400 mt-2">Resolved on: {new Date(resolvedItem.markedAt).toLocaleDateString()}</p>
+                              <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                                <span>{isBank ? 'Bank Transaction' : 'Ledger Entry'}</span>
+                                <span>•</span>
+                                <span>Resolved on {new Date(resolvedItem.markedAt).toLocaleDateString()}</span>
                               </div>
                             </div>
-                            <div className="ml-4">
-                              <div className={`text-lg font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                €{formatCurrency(Math.abs(transaction.amount))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <AlertCircle className="size-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">No resolved items yet.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        {/* Tab 4: Pre-Matched */}
-        <TabsContent value="pre-matched">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Link className="size-5 text-blue-600" />
-                    Pre-Matched Transactions
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    Transactions that were automatically matched during reconciliation. Review and unmatch if needed.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                  {reconciliationResult?.pre_matched_items?.length || 0} groups
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {(reconciliationResult?.pre_matched_items?.length || 0) > 0 ? (
-                <div className="space-y-3">
-                  {reconciliationResult?.pre_matched_items?.map((matchGroup, idx) => {
-                    const bankTotal = matchGroup.bankTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-                    const ledgerTotal = matchGroup.ledgerEntries.reduce((sum, e) => sum + Math.abs(e.amount), 0);
-                    
-                    return (
-                      <div key={idx} className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Link className="size-4 text-blue-600" />
-                              <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-300">
-                                Auto-Matched
-                              </Badge>
-                              <span className="text-sm font-medium text-gray-900">
-                                {matchGroup.bankTransactions.length} Bank ↔ {matchGroup.ledgerEntries.length} Ledger
+                            <div className="flex items-center gap-4">
+                              <span className={`font-mono font-bold text-lg ${transaction.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                                {formatCurrency(Math.abs(transaction.amount), accountCurrency)}
                               </span>
-                              <Badge variant="outline" className="text-xs">
-                                {new Date(matchGroup.matchedAt).toLocaleDateString()}
-                              </Badge>
-                            </div>
-                            
-                            <div className="text-xs bg-white border border-blue-200 rounded p-3 mt-2">
-                              <div className="font-medium text-gray-900 mb-2">Match Summary:</div>
-                              <div className="space-y-1 text-gray-600">
-                                <p>Bank Total: €{formatCurrency(bankTotal)}</p>
-                                <p>Ledger Total: €{formatCurrency(ledgerTotal)}</p>
-                                <p className="text-gray-400 mt-2">Match ID: {matchGroup.matchGroupId}</p>
-                              </div>
-                            </div>
 
-                            {/* Bank Transactions */}
-                            <div className="mt-3 space-y-2">
-                              <div className="text-xs font-medium text-gray-700">Bank Transactions:</div>
-                              {matchGroup.bankTransactions.map((transaction, tIdx) => (
-                                <div key={tIdx} className="p-2 bg-white border border-blue-200 rounded text-xs">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                                        Bank
-                                      </Badge>
-                                      <span className="text-gray-900">{transaction.description}</span>
-                                      <span className="text-gray-500">{transaction.date}</span>
-                                    </div>
-                                    <span className={`font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      €{formatCurrency(Math.abs(transaction.amount))}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleUnmatchGroup(groupId)} // Assuming unmatch works for single items too if they have groupId
+                                disabled={isMonthLocked || loadingActions[`unmatch-${groupId}`]}
+                                title="Revert Resolution"
+                              >
+                                <Undo2 className="size-4" />
+                              </Button>
                             </div>
-
-                            {/* Ledger Entries */}
-                            <div className="mt-3 space-y-2">
-                              <div className="text-xs font-medium text-gray-700">Ledger Entries:</div>
-                              {matchGroup.ledgerEntries.map((entry, eIdx) => (
-                                <div key={eIdx} className="p-2 bg-white border border-blue-200 rounded text-xs">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                                        Ledger
-                                      </Badge>
-                                      <span className="text-gray-900">{entry.description}</span>
-                                      <span className="text-gray-500">{entry.date}</span>
-                                    </div>
-                                    <span className={`font-medium ${entry.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      €{formatCurrency(Math.abs(entry.amount))}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-lg font-medium text-blue-600">
-                              €{formatCurrency(bankTotal)}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 pt-2 border-t border-blue-200">
-                          <Button 
-                            type="button"
-                            size="sm" 
-                            variant="outline"
-                            className="gap-2 bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
-                            onClick={() => handleUnmatchGroup(matchGroup.matchGroupId)}
-                            disabled={isMonthLocked || loadingActions[`unmatch-${matchGroup.matchGroupId}`]}
-                          >
-                            {loadingActions[`unmatch-${matchGroup.matchGroupId}`] ? (
-                              <>
-                                <Loader2 className="size-3 animate-spin" />
-                                Processing...
-                              </>
-                            ) : (
-                              <>
-                                <Undo2 className="size-3" />
-                                Unmatch
-                              </>
-                            )}
-                          </Button>
-                        </div>
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center py-16 rounded-xl bg-white/50 dark:bg-white/5 border border-dashed border-gray-200 dark:border-white/10"
+                    >
+                      <div className="size-16 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mx-auto mb-4">
+                        <CheckCircle2 className="size-8 text-green-600 dark:text-green-400" />
                       </div>
-                    );
-                  })}
-                </div>
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white">Nothing Resolved Yet</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mt-1">
+                        Start matching transactions to see them here.
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </TabsContent>
+
+            {/* Tab 4: Pre-Matched */}
+            <TabsContent value="pre-matched" className="mt-0 focus-visible:outline-none">
+              {!reconciliationResult?.pre_matched_items || reconciliationResult.pre_matched_items.length === 0 ? (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="No Pre-Matched Items"
+                  description="We couldn't automatically match any remaining transactions. Please review the lists below to match items manually."
+                />
               ) : (
-                <div className="text-center py-8">
-                  <Link className="size-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">No pre-matched transactions found.</p>
+                <div className="space-y-6">
+                  {/* Logic for splitting items */}
+                  {(() => {
+                    const items = reconciliationResult.pre_matched_items || [];
+                    // Items need attention if: FX variance OR confidence <= 85%
+                    const reviewNeeded = items.filter(i => {
+                      const isFxVariance = i.match_type === 'fx' ||
+                        i.match_type === 'fx_adjusted' ||
+                        (i.explanation && i.explanation.includes('FX'));
+                      // Confidence is stored as 0-1 (e.g., 0.92 = 92%) or as 0-100
+                      const confidencePercent = i.confidence && i.confidence > 1 ? i.confidence : (i.confidence || 1) * 100;
+                      const isLowConfidence = confidencePercent <= 85;
+                      return isFxVariance || isLowConfidence;
+                    });
+                    const safeMatches = items.filter(i => !reviewNeeded.includes(i));
+
+                    return (
+                      <>
+                        {/* SECTION 1: ATTENTION REQUIRED */}
+                        {reviewNeeded.length > 0 && (
+                          <div className="space-y-3">
+                            {/* Section Header - matches "Ready for Approval" style */}
+                            <div className="flex items-center justify-between px-1">
+                              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Attention Required ({reviewNeeded.length})
+                              </h3>
+                            </div>
+
+                            {/* Items */}
+                            {reviewNeeded.map((matchGroup) => {
+                              const bankTotal = matchGroup.bankTransactions.reduce((sum, t) => sum + t.amount, 0);
+                              const ledgerTotal = matchGroup.ledgerEntries.reduce((sum, e) => sum + e.amount, 0);
+                              const difference = Math.abs(bankTotal - ledgerTotal);
+
+                              return (
+                                <motion.div
+                                  layout
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  key={matchGroup.matchGroupId}
+                                  className="group relative overflow-hidden rounded-xl border border-amber-200 dark:border-amber-900/30 bg-white dark:bg-white/5 shadow-sm hover:shadow-md transition-all"
+                                >
+                                  {/* Left accent bar - solid amber */}
+                                  <div className="absolute top-0 left-0 w-1 h-full bg-amber-500" />
+
+                                  {/* Header */}
+                                  <div className="flex items-center justify-between gap-4 p-4 pl-5 border-b border-gray-100 dark:border-white/5">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Link className="size-4 text-amber-600 dark:text-amber-400" />
+                                      <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
+                                        Review Needed
+                                      </Badge>
+
+                                      {(matchGroup.match_type === 'fx' || matchGroup.match_type === 'fx_adjusted' || (matchGroup.explanation && matchGroup.explanation.includes('FX'))) && (
+                                        <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800">
+                                          FX Variance
+                                        </Badge>
+                                      )}
+
+                                      {matchGroup.confidence && matchGroup.confidence < 1.0 && (
+                                        <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800">
+                                          {Math.round((matchGroup.confidence > 1 ? matchGroup.confidence : matchGroup.confidence * 100))}% Confidence
+                                        </Badge>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      {/* Show different button based on match type */}
+                                      {(matchGroup.match_type === 'fx' || matchGroup.match_type === 'fx_adjusted' || (matchGroup.explanation && matchGroup.explanation.includes('FX'))) ? (
+                                        // FX Match - needs adjustment
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleOpenFxDialog(matchGroup)}
+                                          className="h-8 text-white border-none shadow-sm gap-2"
+                                          style={{ backgroundColor: '#f59e0b' }}
+                                        >
+                                          <Calculator className="size-3.5" />
+                                          Adjust & Match
+                                        </Button>
+                                      ) : (
+                                        // Low confidence match - just needs confirmation
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleConfirmMatch(matchGroup)}
+                                          className="h-8 bg-white dark:bg-white/10 hover:bg-gray-50 dark:hover:bg-white/20 text-gray-700 dark:text-white border border-gray-200 dark:border-white/10 shadow-sm gap-2"
+                                        >
+                                          <CheckCircle2 className="size-3.5" />
+                                          Confirm
+                                        </Button>
+                                      )}
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 px-3 text-gray-500 hover:text-red-500 hover:border-red-300 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 gap-1.5"
+                                        onClick={() => handleUnmatchGroup(matchGroup.matchGroupId)}
+                                      >
+                                        <X className="size-3.5" />
+                                        Unmatch
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {/* Content Grid */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100 dark:divide-white/5">
+                                    {/* Bank Side */}
+                                    <div className="p-4 pl-5 bg-white dark:bg-transparent">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                          Bank Transactions ({matchGroup.bankTransactions.length})
+                                        </p>
+                                        <p className="text-base font-mono font-bold text-gray-900 dark:text-white">
+                                          {formatCurrency(bankTotal, accountCurrency)}
+                                        </p>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {matchGroup.bankTransactions.map(txn => (
+                                          <div key={txn.id} className="flex justify-between items-start text-xs text-gray-600 dark:text-gray-300 py-2 border-b border-gray-50 last:border-0 dark:border-white/5">
+                                            <div className="flex-1 min-w-0 pr-2">
+                                              <p className="font-medium truncate text-gray-900 dark:text-white" title={txn.description}>{txn.description}</p>
+                                              <p className="text-[10px] text-gray-400 font-mono">{txn.date}</p>
+                                            </div>
+                                            <span className="font-mono whitespace-nowrap text-gray-900 dark:text-white">{formatCurrency(txn.amount, accountCurrency)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* Ledger Side */}
+                                    <div className="p-4 bg-gray-50/50 dark:bg-white/[0.02]">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                          Ledger Entries ({matchGroup.ledgerEntries.length})
+                                        </p>
+                                        <p className="text-base font-mono font-bold text-gray-900 dark:text-white">
+                                          {formatCurrency(ledgerTotal, accountCurrency)}
+                                        </p>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {matchGroup.ledgerEntries.map(entry => (
+                                          <div key={entry.id} className="flex justify-between items-start text-xs text-gray-600 dark:text-gray-300 py-2 border-b border-gray-100/50 last:border-0 dark:border-white/5">
+                                            <div className="flex-1 min-w-0 pr-2">
+                                              <p className="font-medium truncate text-gray-900 dark:text-white" title={entry.description}>{entry.description}</p>
+                                              <p className="text-[10px] text-gray-400 font-mono">{entry.date}</p>
+                                            </div>
+                                            <span className="font-mono whitespace-nowrap text-gray-900 dark:text-white">{formatCurrency(entry.amount, accountCurrency)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Difference Footer */}
+                                  {difference > 0.01 && (
+                                    <div className="px-4 pl-5 py-3 bg-amber-50/50 dark:bg-amber-900/10 border-t border-amber-100 dark:border-amber-900/20">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                                          Variance to resolve
+                                        </span>
+                                        <span className="text-sm font-bold font-mono text-amber-600 dark:text-amber-400">
+                                          {formatCurrency(difference, accountCurrency)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* SECTION 2: SAFE MATCHES */}
+                        {safeMatches.length > 0 && (
+                          <div className="space-y-3 pt-4 border-t border-gray-100 dark:border-white/5">
+                            <div className="flex items-center justify-between px-1">
+                              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Ready for Approval ({safeMatches.length})
+                              </h3>
+                              <Button size="sm" variant="ghost" className="text-xs text-blue-600 hover:text-blue-700 h-7" onClick={() => handleConfirmAllMatches()}>
+                                Approve All Safe Matches
+                              </Button>
+                            </div>
+
+                            {safeMatches.map((matchGroup) => (
+                              <motion.div
+                                layout
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                key={matchGroup.matchGroupId}
+                                className="group relative overflow-hidden rounded-xl border border-gray-100 dark:border-white/5 bg-white dark:bg-white/5 shadow-sm hover:shadow-md transition-all"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
+                                  {/* Left side: Match info */}
+                                  <div className="flex-1 min-w-0 space-y-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Link className="size-4 text-blue-600 dark:text-blue-400" />
+                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800">
+                                        {matchGroup.match_type === 'exact' ? 'Exact Match' :
+                                          matchGroup.match_type === 'tolerance' ? 'Tolerance Match' :
+                                            matchGroup.match_type === 'one_to_many' ? 'Split Match' :
+                                              matchGroup.match_type === 'many_to_one' ? 'Grouped Match' :
+                                                'Auto-Matched'}
+                                      </Badge>
+                                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                        {formatCurrency(matchGroup.bankTransactions.reduce((s, t) => s + t.amount, 0), accountCurrency)}
+                                      </span>
+                                    </div>
+
+                                    {/* Preview of items (Condensed) */}
+                                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-medium text-gray-700 dark:text-gray-300">{matchGroup.bankTransactions[0].description}</span>
+                                        {matchGroup.bankTransactions.length > 1 && <span className="text-[10px] bg-gray-100 px-1 rounded">+{matchGroup.bankTransactions.length - 1} more</span>}
+                                      </div>
+                                      <ArrowRight className="size-3 text-gray-300" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-medium text-gray-700 dark:text-gray-300">{matchGroup.ledgerEntries[0].description}</span>
+                                        {matchGroup.ledgerEntries.length > 1 && <span className="text-[10px] bg-gray-100 px-1 rounded">+{matchGroup.ledgerEntries.length - 1} more</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Right side: Actions */}
+                                  <div className="flex items-center gap-2 self-end sm:self-center">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleUnmatchGroup(matchGroup.matchGroupId)}
+                                      className="h-8 w-8 p-0 text-gray-400 hover:text-red-500"
+                                      title="Unmatch"
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleConfirmMatch(matchGroup)}
+                                      className="h-8 bg-white dark:bg-white/10 hover:bg-gray-50 dark:hover:bg-white/20 text-gray-700 dark:text-white border border-gray-200 dark:border-white/10 shadow-sm"
+                                    >
+                                      Confirm
+                                    </Button>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            </TabsContent>
+          </Tabs>
 
-      {/* Edit Transaction Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit {editingType === 'bank' ? 'Bank Transaction' : 'Ledger Entry'}</DialogTitle>
-            <DialogDescription>
-              Update the transaction details if needed.
-            </DialogDescription>
-          </DialogHeader>
-          {editingItem && (
-            <div className="space-y-4">
-              <div>
-                <Label>Date</Label>
-                <Input 
-                  type="date"
-                  value={editingItem.date || ''}
-                  onChange={(e) => setEditingItem({...editingItem, date: e.target.value})}
-                />
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Input 
-                  value={editingItem.description || ''}
-                  onChange={(e) => setEditingItem({...editingItem, description: e.target.value})}
-                />
-              </div>
-              <div>
-                <Label>Amount</Label>
-                <Input 
-                  type="number"
-                  step="0.01"
-                  value={editingItem.amount || 0}
-                  onChange={(e) => setEditingItem({...editingItem, amount: parseFloat(e.target.value)})}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleSaveEdit}>
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Follow-Up Dialog */}
-      <Dialog open={showFollowUpDialog} onOpenChange={setShowFollowUpDialog}>
-        <DialogContent className="max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <MessageSquare className="size-5 text-purple-600" />
-              Request Information
-            </DialogTitle>
-            <DialogDescription className="text-gray-600">
-              Add a note about what information is needed for this transaction.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label className="text-sm font-medium text-gray-700 mb-2">What information do you need?</Label>
-              <Textarea 
-                value={followUpNote}
-                onChange={(e) => setFollowUpNote(e.target.value)}
-                placeholder="e.g., Need vendor invoice from supplier, Waiting for client approval, Need clarification on purpose..."
-                rows={5}
-                className="mt-2 resize-none"
-              />
-            </div>
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="flex items-start gap-2 mb-3">
-                <ThumbsUp className="size-4 text-purple-600 mt-0.5" />
-                <span className="text-sm font-medium text-purple-900">Common follow-ups:</span>
-              </div>
-              <ul className="space-y-2 ml-6">
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Vendor invoice required
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Client inquiry needed
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Bank statement clarification
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Team member approval required
-                </li>
-              </ul>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => setShowFollowUpDialog(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleRequestInformation} className="bg-purple-600 hover:bg-purple-700">
-              Flag for Follow-Up
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Match Dialog */}
-      <Dialog open={showMatchDialog} onOpenChange={setShowMatchDialog}>
-        <DialogContent className="max-w-[90vw] w-[1600px] max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Match Transactions - Multi-Select</DialogTitle>
-            <DialogDescription>
-              Select one or more bank transactions and one or more ledger entries to match them together. Supports many-to-many matching.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-6">
-              {/* Bank Transactions Column */}
-              <div className="space-y-3">
-                <div className="sticky top-0 bg-white pb-3 border-b border-gray-200 z-10">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                      <FileSpreadsheet className="size-4 text-red-600" />
-                      Bank Transactions
-                    </h3>
-                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                      {selectedBankItems.length} selected
-                    </Badge>
+          {/* Edit Transaction Dialog */}
+          <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+            <DialogContent className="bg-white/95 dark:bg-black/95 backdrop-blur-xl border-gray-200 dark:border-white/10 sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="font-outfit text-xl">Edit {editingType === 'bank' ? 'Bank Transaction' : 'Ledger Entry'}</DialogTitle>
+                <DialogDescription className="text-gray-500 dark:text-gray-400">
+                  Update the transaction details if needed.
+                </DialogDescription>
+              </DialogHeader>
+              {editingItem && (
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="date" className="text-xs font-medium uppercase text-gray-500">Date</Label>
+                    <Input
+                      id="date"
+                      type="date"
+                      className="bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10"
+                      value={editingItem.date || ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingItem({ ...editingItem, date: e.target.value })}
+                    />
                   </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded p-3">
-                    <div className="text-sm font-medium text-blue-900">Selected Total:</div>
-                    <div className={`text-2xl font-medium ${getTotalAmount(selectedBankItems) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      €{formatCurrency(Math.abs(getTotalAmount(selectedBankItems)))}
+                  <div className="space-y-2">
+                    <Label htmlFor="description" className="text-xs font-medium uppercase text-gray-500">Description</Label>
+                    <Input
+                      id="description"
+                      className="bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10"
+                      value={editingItem.description || ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingItem({ ...editingItem, description: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="amount" className="text-xs font-medium uppercase text-gray-500">Amount</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-gray-500">{getCurrencySymbol(accountCurrency)}</span>
+                      <Input
+                        id="amount"
+                        type="number"
+                        step="0.01"
+                        className="pl-7 bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 font-mono"
+                        value={editingItem.amount || 0}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingItem({ ...editingItem, amount: parseFloat(e.target.value) })}
+                      />
                     </div>
                   </div>
                 </div>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowEditDialog(false)} className="border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/5">
+                  Cancel
+                </Button>
+                <Button type="button" onClick={handleSaveEdit} className="bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 text-white dark:text-gray-900 border-0 hover:opacity-90 transition-opacity">
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-                <div className="space-y-2">
-                  {unmatchedBankItems && unmatchedBankItems.map((item, idx) => {
-                    const isSelected = selectedBankItems.some(i => i.transaction.id === item.transaction.id);
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                          isSelected 
-                            ? 'bg-blue-100 border-blue-500 shadow-md' 
-                            : 'bg-red-50 border-red-200 hover:border-red-400'
-                        }`}
-                        onClick={() => toggleBankSelection(item)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox 
-                            checked={isSelected}
-                            onCheckedChange={() => toggleBankSelection(item)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-gray-900">{item.transaction.description}</span>
-                              <div className={`text-lg font-medium ${item.transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                €{formatCurrency(Math.abs(item.transaction.amount))}
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-600">{item.transaction.date}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+          {/* Follow-Up Dialog */}
+          <ReconciliationFollowUpDialog
+            open={showFollowUpDialog}
+            onOpenChange={setShowFollowUpDialog}
+            note={followUpNote}
+            onNoteChange={setFollowUpNote}
+            onConfirm={handleRequestInformation}
+            isLoading={!!(
+              (editingType === 'bank' && selectedBankItem && loadingActions[`request-info-bank-${selectedBankItem.transaction.id}`]) ||
+              (editingType === 'ledger' && selectedLedgerItem && loadingActions[`request-info-ledger-${selectedLedgerItem.entry.id}`])
+            )}
+          />
 
-              {/* Ledger Entries Column */}
-              <div className="space-y-3">
-                <div className="sticky top-0 bg-white pb-3 border-b border-gray-200 z-10">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                      <BookOpen className="size-4 text-amber-600" />
-                      Ledger Entries
-                    </h3>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                      {selectedLedgerItems.length} selected
-                    </Badge>
-                  </div>
-                  <div className="bg-purple-50 border border-purple-200 rounded p-3">
-                    <div className="text-sm font-medium text-purple-900">Selected Total:</div>
-                    <div className={`text-2xl font-medium ${getTotalAmount(selectedLedgerItems) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      €{formatCurrency(Math.abs(getTotalAmount(selectedLedgerItems)))}
-                    </div>
-                  </div>
-                </div>
+          {/* Match Dialog */}
+          <ReconciliationMatchDialog
+            open={showMatchDialog}
+            onOpenChange={setShowMatchDialog}
+            title="Match Transactions - Multi-Select"
 
-                <div className="space-y-2">
-                  {unmatchedLedgerItems && unmatchedLedgerItems.map((item, idx) => {
-                    const isSelected = selectedLedgerItems.some(i => i.entry.id === item.entry.id);
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                          isSelected 
-                            ? 'bg-purple-100 border-purple-500 shadow-md' 
-                            : 'bg-amber-50 border-amber-200 hover:border-amber-400'
-                        }`}
-                        onClick={() => toggleLedgerSelection(item)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox 
-                            checked={isSelected}
-                            onCheckedChange={() => toggleLedgerSelection(item)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-gray-900">{item.entry.description}</span>
-                              <div className={`text-lg font-medium ${item.entry.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                €{formatCurrency(Math.abs(item.entry.amount))}
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-600">{item.entry.date}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
+            leftItems={unmatchedBankItems?.map(item => ({
+              id: item.transaction.id,
+              date: item.transaction.date,
+              description: item.transaction.description,
+              amount: item.transaction.amount,
+              originalItem: item
+            })) || []}
+            leftTitle="Bank Transactions"
+            onSelectLeft={(item) => toggleBankSelection(item.originalItem as UnmatchedBank)}
+            selectedLeftItems={selectedBankItems.map(item => ({
+              id: item.transaction.id,
+              date: item.transaction.date,
+              description: item.transaction.description,
+              amount: item.transaction.amount,
+              originalItem: item
+            }))}
 
-          {/* Match Validation Banner */}
-          {(selectedBankItems.length > 0 || selectedLedgerItems.length > 0) && (
-            <div className="border-t border-gray-200 pt-4">
-              <div className={`p-4 rounded-lg border-2 ${
-                Math.abs(getTotalAmount(selectedBankItems) - getTotalAmount(selectedLedgerItems)) < 0.01
-                  ? 'bg-green-50 border-green-500'
-                  : 'bg-yellow-50 border-yellow-500'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900 mb-1">
-                      {Math.abs(getTotalAmount(selectedBankItems) - getTotalAmount(selectedLedgerItems)) < 0.01 ? (
-                        <span className="text-green-700 flex items-center gap-2">
-                          <CheckCircle2 className="size-5" />
-                          Amounts Match - Ready to Reconcile
-                        </span>
-                      ) : (
-                        <span className="text-yellow-700 flex items-center gap-2">
-                          <AlertCircle className="size-5" />
-                          Amount Difference
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      Bank: €{formatCurrency(Math.abs(getTotalAmount(selectedBankItems)))} | 
-                      Ledger: €{formatCurrency(Math.abs(getTotalAmount(selectedLedgerItems)))} | 
-                      Diff: €{formatCurrency(Math.abs(getTotalAmount(selectedBankItems) - getTotalAmount(selectedLedgerItems)))}
-                    </div>
-                  </div>
-                  <Button 
-                    type="button"
-                    className="gap-2 bg-green-600 hover:bg-green-700"
-                    onClick={() => handleMatchItems()}
-                    disabled={isMonthLocked || selectedBankItems.length === 0 || selectedLedgerItems.length === 0}
-                  >
-                    <Link className="size-4" />
-                    Match {selectedBankItems.length} Bank ↔ {selectedLedgerItems.length} Ledger
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
+            rightItems={unmatchedLedgerItems?.map(item => ({
+              id: item.entry.id,
+              date: item.entry.date,
+              description: item.entry.description,
+              amount: item.entry.amount,
+              originalItem: item
+            })) || []}
+            rightTitle="Ledger Entries"
+            onSelectRight={(item) => toggleLedgerSelection(item.originalItem as UnmatchedLedger)}
+            selectedRightItems={selectedLedgerItems.map(item => ({
+              id: item.entry.id,
+              date: item.entry.date,
+              description: item.entry.description,
+              amount: item.entry.amount,
+              originalItem: item
+            }))}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => {
-              setShowMatchDialog(false);
-              setSelectedBankItems([]);
-              setSelectedLedgerItems([]);
-            }}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            onMatch={handleMatchItems}
+            isMatching={false}
+          />
 
-      {/* Toaster */}
-      <Toaster />
+          {/* Toaster */}
+          <Toaster />
+        </>
+      )}
+
+      {/* FX Adjustment Dialog */}
+      <FxAdjustmentDialog
+        isOpen={showFxDialog}
+        onClose={() => setShowFxDialog(false)}
+        onConfirm={handleConfirmFxAdjustment}
+        bankAmount={selectedFxGroup ? selectedFxGroup.bankTransactions.reduce((s, t) => s + t.amount, 0) : 0}
+        ledgerAmount={selectedFxGroup ? selectedFxGroup.ledgerEntries.reduce((s, e) => s + e.amount, 0) : 0}
+        currency={accountCurrency}
+        bankAccountName={selectedAccount?.name || 'Bank Account'}
+        chartOfAccounts={chartOfAccounts}
+        isProcessing={isProcessingFx}
+      />
     </div>
   );
 }

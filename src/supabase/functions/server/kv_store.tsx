@@ -91,3 +91,51 @@ export const getByPrefix = async (prefix: string): Promise<any[]> => {
   }
   return data?.map((d) => d.value) ?? [];
 };
+
+// Search for key-value pairs by prefix with pagination support.
+export const getByPrefixPaginated = async (
+  prefix: string,
+  page: number = 1,
+  pageSize: number = 100,
+  searchTerm?: string
+): Promise<{ data: any[], total: number, page: number, pageSize: number, totalPages: number }> => {
+  const supabase = client();
+  
+  // First, get all matching records by prefix
+  const { data: allData, error: fetchError } = await supabase
+    .from("kv_store_53c2e113")
+    .select("key, value")
+    .like("key", prefix + "%")
+    .order('key', { ascending: true });
+  
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+  
+  let filteredData = allData?.map((d) => d.value) ?? [];
+  
+  // Apply search filter if provided (case-insensitive search on name field)
+  if (searchTerm && searchTerm.trim()) {
+    const lowerSearch = searchTerm.toLowerCase().trim();
+    filteredData = filteredData.filter((item: any) => {
+      return item?.name?.toLowerCase().includes(lowerSearch);
+    });
+  }
+  
+  // Calculate pagination
+  const total = filteredData.length;
+  const totalPages = Math.ceil(total / pageSize);
+  
+  // Get the slice for the current page
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize;
+  const paginatedData = filteredData.slice(start, end);
+  
+  return {
+    data: paginatedData,
+    total,
+    page,
+    pageSize,
+    totalPages
+  };
+};

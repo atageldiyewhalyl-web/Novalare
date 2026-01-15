@@ -1,0 +1,71 @@
+{
+  "success": true,
+  "transactions": [
+    {
+      "date": "2024-04-17",
+      "description": "Online Transfer From Sav ...0386 Transaction#: 2444249040404",
+      "amount": 30.0,
+      "balance": 105.36
+    },
+    {
+      "date": "2024-04-17",
+      "description": "Zelle Payment To Chrissy Chris Jpm99B551Fbg",
+      "amount": -53.0,
+      "balance": 52.36
+    },
+    {
+      "date": "2024-04-17",
+      "description": "Planet Fit Club Fees PPD ID: 1710602737",
+      "amount": -16.58,
+      "balance": 35.78
+    },
+    {
+      "date": "2024-04-18",
+      "description": "Debit Card Purchase - Amazon.com",
+      "amount": -127.43,
+      "balance": -91.65
+    },
+    {
+      "date": "2024-04-19",
+      "description": "Direct Deposit - ACME CORP Payroll",
+      "amount": 2500.0,
+      "balance": 2408.35
+    },
+    {
+      "date": "2024-04-20",
+      "description": "Check #1234",
+      "amount": -450.0,
+      "balance": 1958.35
+    },
+    {
+      "date": "2024-04-21",
+      "description": "ATM Withdrawal - Chase ATM #5678",
+      "amount": -100.0,
+      "balance": 1858.35
+    },
+    {
+      "date": "2024-04-22",
+      "description": "Online Bill Payment - Electric Company",
+      "amount": -89.56,
+      "balance": 1768.79
+    },
+    {
+      "date": "2024-04-23",
+      "description": "Debit Card Purchase - Whole Foods Market",
+      "amount": -54.32,
+      "balance": 1714.47
+    },
+    {
+      "date": "2024-04-24",
+      "description": "Mobile Deposit - Check #9876",
+      "amount": 350.0,
+      "balance": 2064.47
+    }
+  ],
+  "count": 10,
+  "summary": {
+    "total_debits": -874.89,
+    "total_credits": 2880.0,
+    "net_change": 2005.11
+  }
+}

@@ -1,6 +1,6 @@
 # 📧 Cloudflare Email Worker Setup Guide - COMPLETE WALKTHROUGH
 
-This guide will help you set up automatic email routing for invoice processing in Novalare.
+This guide will help you set up automatic email routing for invoice and receipt processing in Novalare.
 
 ## 🎯 Overview
 
@@ -11,12 +11,18 @@ This guide will help you set up automatic email routing for invoice processing i
 abc-backerei-gmbh+invoice@novalare.com
 ```
 
-Vendors can send invoice PDFs to this email, and they'll be automatically:
+**How It Works:**
+- Vendors and employees send BOTH invoices AND receipts to this single email address
+- AI automatically classifies each document as invoice or receipt
+- Documents are automatically sorted into the correct workflow
+
+**Processing Flow:**
 1. Received by Cloudflare
 2. Processed by an Email Worker
 3. Forwarded to your webhook
-4. Extracted using AI (GPT-4o)
-5. Displayed in "Workflows → Invoice Extraction" (status: Pending)
+4. AI classifies as invoice or receipt
+5. Extracted using AI (GPT-4o)
+6. Displayed in "Workflows → Invoice Extraction" or "Workflows → Receipt Extraction" (status: Pending)
 
 ---
 
@@ -329,10 +335,10 @@ Now every time you create a new company:
 | Company Name | Generated Email |
 |-------------|-----------------|
 | ABC Bäckerei GmbH | `abc-backerei-gmbh+invoice@novalare.com` |
-| TechNova UG | `technova-ug+invoice@novalare.com` |
-| Green Logistics GmbH | `green-logistics-gmbh+invoice@novalare.com` |
-| Müller & Co. KG | `muller-co-kg+invoice@novalare.com` |
-| Café am Markt | `cafe-am-markt+invoice@novalare.com` |
+| TechNova UG | `technovaug+invoice@novalare.com` |
+| Green Logistics GmbH | `greenlogisticsgmbh+invoice@novalare.com` |
+| Müller & Co. KG | `mullercokg+invoice@novalare.com` |
+| Café am Markt | `cafeammarkt+invoice@novalare.com` |
 
 ---
 

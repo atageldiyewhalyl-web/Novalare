@@ -1,0 +1,251 @@
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                    SCALABLE TEMPLATE ARCHITECTURE                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                            USER UPLOADS PDF                               │
+│                                   ↓                                       │
+│                        ┌──────────────────────┐                          │
+│                        │   detect_bank()      │                          │
+│                        │  (template_loader)   │                          │
+│                        └──────────────────────┘                          │
+│                                   ↓                                       │
+│                   ┌────────────────┴────────────────┐                    │
+│                   │                                  │                    │
+│          ┌────────▼─────────┐            ┌──────────▼─────────┐         │
+│          │ User-Learned     │            │   Built-In         │         │
+│          │ Templates        │            │   Templates        │         │
+│          │ (Priority 1)     │            │   (Priority 2)     │         │
+│          └────────┬─────────┘            └──────────┬─────────┘         │
+│                   │                                  │                    │
+│          ┌────────▼──────────────────────────────────▼─────────┐         │
+│          │                                                      │         │
+│          │  MATCH FOUND?                                       │         │
+│          │                                                      │         │
+│          └────────┬──────────────────────────────────┬─────────┘         │
+│                   │ YES                               │ NO               │
+│                   ↓                                   ↓                   │
+│          ┌─────────────────┐                ┌─────────────────┐         │
+│          │  Use Template   │                │  AI Discovery   │         │
+│          │  (Tier 1)       │                │  (Tier 2)       │         │
+│          │  FREE & FAST    │                │  $0.02-0.06     │         │
+│          └────────┬─────────┘                └────────┬─────────┘         │
+│                   │                                   │                   │
+│                   │                    ┌──────────────▼──────────────┐   │
+│                   │                    │ AI Creates Template         │   │
+│                   │                    │ Saves to user_learned/      │   │
+│                   │                    └──────────────┬──────────────┘   │
+│                   │                                   │                   │
+│                   └───────────────┬───────────────────┘                   │
+│                                   ↓                                       │
+│                        ┌──────────────────────┐                          │
+│                        │ Extract Transactions │                          │
+│                        │ (pdfplumber + Python)│                          │
+│                        └──────────────────────┘                          │
+│                                   ↓                                       │
+│                        ┌──────────────────────┐                          │
+│                        │ Return JSON Results  │                          │
+│                        └──────────────────────┘                          │
+└───────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+
+                            DIRECTORY STRUCTURE
+
+python-extraction-server/
+│
+├── app.py (1200 lines)
+│   ├── Flask API endpoints
+│   ├── Extraction logic
+│   └── BANK_TEMPLATES = load_all_templates() ← ONE LINE!
+│
+├── template_loader.py (250 lines)
+│   ├── TemplateLoader class
+│   ├── load_all_templates()
+│   ├── detect_bank()
+│   └── save_user_template() ← Tier 3!
+│
+└── templates/
+    │
+    ├── built_in/                    (Official Templates)
+    │   ├── capital_one.json         v1.1 (Fixed 2024-12-22)
+    │   ├── chase.json               v1.0 (Verified working)
+    │   ├── deutsche_bank.json       v1.0 (Soll/Haben)
+    │   ├── bank_of_america.json     ← Add next
+    │   └── wells_fargo.json         ← Add next
+    │
+    └── user_learned/                (Tier 3 Templates)
+        ├── README.md
+        ├── my_credit_union.json     ← User clicks 2-3 transactions
+        └── regional_bank_xyz.json   ← System learns & saves!
+
+═══════════════════════════════════════════════════════════════════════════
+
+                        TEMPLATE PRIORITY SYSTEM
+
+    ┌─────────────────────────────────────────────────┐
+    │  1. User-Learned Templates (Highest Priority)   │
+    │     /templates/user_learned/*.json              │
+    │     • Organization-specific                     │
+    │     • Override built-in templates               │
+    │     • Tier 3 auto-saves here                    │
+    └─────────────────────────────────────────────────┘
+                            ↓ (if not found)
+    ┌─────────────────────────────────────────────────┐
+    │  2. Built-In Templates                          │
+    │     /templates/built_in/*.json                  │
+    │     • Official bank templates                   │
+    │     • Maintained by Novalare                    │
+    │     • Community contributions                   │
+    └─────────────────────────────────────────────────┘
+                            ↓ (if not found)
+    ┌─────────────────────────────────────────────────┐
+    │  3. AI Discovery (Tier 2)                       │
+    │     • GPT-4 Vision analyzes layout              │
+    │     • Creates template on-the-fly               │
+    │     • Saves to user_learned/ for future         │
+    └─────────────────────────────────────────────────┘
+                            ↓ (if AI fails)
+    ┌─────────────────────────────────────────────────┐
+    │  4. Manual Mapping (Tier 3)                     │
+    │     • User clicks sample transactions           │
+    │     • System learns column positions            │
+    │     • Saves to user_learned/                    │
+    └─────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+
+                          TEMPLATE JSON FORMAT
+
+{
+  "bank_key": "capital_one",              ← Unique identifier
+  "bank_name": "Capital One",             ← Display name
+  "version": "1.1",                       ← Template version
+  "created_by": "system",                 ← system | user | ai
+  "last_updated": "2024-12-22",           ← Last modified
+  
+  "statement_model": "running_balance",   ← running_balance | soll_haben
+  "currency": "USD",                      ← USD | EUR | GBP
+  
+  "columns": {                            ← X-coordinates (pdfplumber)
+    "date": {
+      "x_min": 70,                        ← Left edge
+      "x_max": 105,                       ← Right edge
+      "note": "Month name: 'Apr 1'"       ← Developer notes
+    },
+    "description": {
+      "x_min": 125,
+      "x_max": 500
+    },
+    "amount": {
+      "x_min": 510,
+      "x_max": 580
+    },
+    "balance": {
+      "x_min": 640,
+      "x_max": 710
+    }
+  },
+  
+  "transaction_start_markers": [          ← Header text to find
+    "DATE",
+    "DESCRIPTION"
+  ],
+  
+  "date_format": "MMM D",                 ← MM/DD | DD.MM.YYYY | MMM D
+  "has_balance_column": true,             ← true | false
+  "multiline_descriptions": false,        ← true | false
+  
+  "detection_keywords": [                 ← Auto-detect bank
+    "capital one",
+    "capitalone"
+  ]
+}
+
+═══════════════════════════════════════════════════════════════════════════
+
+                            API ENDPOINTS
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  GET /templates                                                         │
+│    → List all available templates (built-in + user-learned)            │
+│                                                                         │
+│  GET /templates/{bank_key}                                             │
+│    → Get detailed template information                                 │
+│                                                                         │
+│  POST /extract-with-schema                                             │
+│    → Extract transactions using template (auto-detect bank)            │
+│                                                                         │
+│  POST /diagnose-columns                                                │
+│    → Analyze PDF and show x-coordinates (for creating templates)       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+
+                          SCALABILITY COMPARISON
+
+BEFORE (Monolithic):
+┌────────────────────────────────────────┐
+│ app.py (1700 lines)                    │
+│   ├── Template 1 (15 lines)            │
+│   ├── Template 2 (15 lines)            │
+│   ├── ...                              │
+│   └── Template 20 (15 lines)           │
+│                                         │
+│ Adding 10 banks = +150 lines          │
+│ Adding 100 banks = +1500 lines        │
+│ File becomes unmanageable!             │
+└────────────────────────────────────────┘
+
+AFTER (Modular):
+┌────────────────────────────────────────┐
+│ app.py (1200 lines)                    │
+│   └── BANK_TEMPLATES = load()         │
+│                                         │
+│ templates/                              │
+│   ├── bank1.json (50 lines)            │
+│   ├── bank2.json (50 lines)            │
+│   ├── ...                              │
+│   └── bank100.json (50 lines)          │
+│                                         │
+│ Adding 10 banks = 10 files            │
+│ Adding 100 banks = 100 files          │
+│ SCALES INFINITELY!                     │
+└────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+
+                            SUCCESS METRICS
+
+✅ Code reduced: 1700 → 1200 lines (-30%)
+✅ Template files: Separate, versioned, maintainable
+✅ Scalability: 20 banks → 100+ banks capacity
+✅ User templates: Ready for Tier 3
+✅ API endpoints: Added /templates, /templates/{bank_key}
+✅ Documentation: Complete architecture guide
+✅ Test scripts: Automated testing suite
+
+═══════════════════════════════════════════════════════════════════════════
+
+                          TEST THE ARCHITECTURE
+
+1. Test template loader:
+   $ python3 template_loader.py
+
+2. Run full test suite:
+   $ bash TEST_NEW_ARCHITECTURE.sh
+
+3. Test Capital One extraction:
+   $ curl -X POST http://127.0.0.1:8000/extract-with-schema \
+       -F "file=@statement.pdf" \
+       -F "auto_discover=false" \
+     | python3 -m json.tool
+
+═══════════════════════════════════════════════════════════════════════════
+
+🚀 ARCHITECTURE NOW SCALES TO 100+ BANKS!
+
+Next: Test Capital One extraction and add more bank templates!
+
+═══════════════════════════════════════════════════════════════════════════

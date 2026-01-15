@@ -10,25 +10,26 @@ import { toast } from 'sonner@2.0.3';
 
 interface AddCompanyDialogProps {
   onSuccess?: () => void;
+  onOptimisticAdd?: (company: any) => void;
   trigger?: React.ReactNode;
 }
 
-export function AddCompanyDialog({ onSuccess, trigger }: AddCompanyDialogProps) {
+export function AddCompanyDialog({ onSuccess, onOptimisticAdd, trigger }: AddCompanyDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [formData, setFormData] = useState({
     name: '',
-    country: 'DE',
-    chartOfAccounts: 'SKR03',
+    country: 'US',
+    chartOfAccounts: 'GAAP',
     status: 'Active' as 'Active' | 'Inactive' | 'Archived',
     tags: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name.trim()) {
       setError('Company name is required');
       return;
@@ -48,6 +49,39 @@ export function AddCompanyDialog({ onSuccess, trigger }: AddCompanyDialogProps) 
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
 
+      // Create optimistic company object
+      const optimisticCompany = {
+        id: `temp-${Date.now()}`, // Temporary ID
+        name: formData.name.trim(),
+        country: formData.country,
+        chartOfAccounts: formData.chartOfAccounts,
+        status: formData.status,
+        tags: tagsArray.length > 0 ? tagsArray : undefined,
+        docsThisMonth: 0,
+        lastActivity: 'Just now',
+        pendingCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Immediately show in UI
+      if (onOptimisticAdd) {
+        onOptimisticAdd(optimisticCompany);
+      }
+
+      // Close dialog immediately for instant feel
+      setOpen(false);
+
+      // Reset form
+      setFormData({
+        name: '',
+        country: 'US',
+        chartOfAccounts: 'GAAP',
+        status: 'Active',
+        tags: '',
+      });
+
+      // Create in background
       await companiesApi.create({
         name: formData.name.trim(),
         country: formData.country,
@@ -60,17 +94,6 @@ export function AddCompanyDialog({ onSuccess, trigger }: AddCompanyDialogProps) 
 
       toast.success(`${formData.name.trim()} created successfully!`);
 
-      // Reset form
-      setFormData({
-        name: '',
-        country: 'DE',
-        chartOfAccounts: 'SKR03',
-        status: 'Active',
-        tags: '',
-      });
-      
-      setOpen(false);
-      
       // Notify parent to refresh data
       if (onSuccess) {
         onSuccess();
@@ -199,7 +222,12 @@ export function AddCompanyDialog({ onSuccess, trigger }: AddCompanyDialogProps) 
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading} className="bg-gray-900 hover:bg-gray-800">
+            <Button
+              type="submit"
+              disabled={loading}
+              className="bg-[#65D3FD] hover:bg-[#65D3FD]/90 text-black font-extrabold shadow-lg shadow-[#65D3FD]/10 transition-all active:scale-95"
+              style={{ fontFamily: "'Outfit', sans-serif" }}
+            >
               {loading ? 'Creating...' : 'Create Company'}
             </Button>
           </div>

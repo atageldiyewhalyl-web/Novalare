@@ -1,0 +1,32 @@
+This is a temporary file documenting the UI changes needed for AP Reconciliation to match Bank Reconciliation design.
+
+CHANGES NEEDED:
+
+1. Update MatchedPair interface to include:
+   - match_status?: 'auto_approved' | 'review_recommended' | 'manual_review_required'
+   - match_flags?: any
+   - additional_vendor_transactions?: VendorTransaction[]
+
+2. Update vendor description column (around line 1495-1497):
+   - Add many-to-one grouped display like Bank Rec
+   - Show "X Combined Transactions" with bullet list
+
+3. Update amount column (around line 1498-1500):
+   - Add many-to-one sum display
+   - Show individual amounts in sub-list
+
+4. Update badge coloring (around line 1501-1512):
+   - exact_match → bg-violet-50 text-violet-700 border-violet-200 (purple)
+   - one_to_many → bg-green-50 text-green-700 border-green-200 (green)  
+   - many_to_one → bg-amber-50 text-amber-700 border-amber-200 (amber/orange)
+   - fx_tolerance → bg-blue-50 text-blue-700 border-blue-200 (blue)
+   - Show "X:1" for many-to-one matches
+
+5. Update confidence column (around line 1513-1515):
+   - Wrap in flex container with gap
+   - Add status badges:
+     * manual_review_required → "Review Required" (red)
+     * review_recommended → "Review" (yellow)
+     * auto_approved → "✓" (green checkmark)
+
+The exact changes are documented in the Bank Reconciliation file at lines 2960-3039.

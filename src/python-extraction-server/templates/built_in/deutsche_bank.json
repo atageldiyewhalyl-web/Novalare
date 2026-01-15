@@ -1,0 +1,64 @@
+{
+  "bank_key": "deutsche_bank",
+  "bank_name": "Deutsche Bank",
+  "version": "1.0",
+  "created_by": "system",
+  "last_updated": "2024-12-22",
+  "description": "Deutsche Bank (Germany) - DD.MM.YYYY format with Soll/Haben columns",
+  
+  "statement_model": "soll_haben",
+  "currency": "EUR",
+  
+  "columns": {
+    "date": {
+      "x_min": 40,
+      "x_max": 110,
+      "note": "European date format: DD.MM.YYYY or DD.MM."
+    },
+    "description": {
+      "x_min": 120,
+      "x_max": 360,
+      "note": "Transaction description (Buchungstext)"
+    },
+    "soll": {
+      "x_min": 370,
+      "x_max": 450,
+      "note": "Debit column (negative amounts)"
+    },
+    "haben": {
+      "x_min": 460,
+      "x_max": 540,
+      "note": "Credit column (positive amounts)"
+    },
+    "balance": {
+      "x_min": 550,
+      "x_max": 630,
+      "note": "Running balance (Saldo)"
+    }
+  },
+  
+  "transaction_start_markers": [
+    "Buchungstag",
+    "Valuta",
+    "Buchungstext",
+    "Umsatz"
+  ],
+  
+  "date_format": "DD.MM.YYYY",
+  "has_balance_column": true,
+  "multiline_descriptions": false,
+  
+  "detection_keywords": [
+    "deutsche bank",
+    "db privat",
+    "soll",
+    "haben",
+    "buchungstag"
+  ],
+  
+  "notes": [
+    "German banking format: Soll (debit) and Haben (credit) columns",
+    "Amounts use European format: 1.234,56 EUR",
+    "Date format with dots: 20.10.2024"
+  ]
+}

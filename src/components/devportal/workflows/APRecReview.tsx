@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,11 +6,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  ArrowLeft, 
-  CheckCircle2, 
-  FileSpreadsheet, 
-  BookOpen, 
+import {
+  ArrowLeft,
+  CheckCircle2,
+  FileSpreadsheet,
+  BookOpen,
   AlertCircle,
   Edit2,
   Plus,
@@ -31,7 +31,7 @@ import {
   Lock
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '@/utils/supabase/info';
-import { companiesApi, Company } from '@/utils/api-client';
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,10 +47,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { Toaster } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { UnmatchedItemCard } from './shared/ReconciliationItemCard';
+import { ReconciliationMatchDialog, MatchItem } from './shared/ReconciliationMatchDialog';
+import { ReconciliationFollowUpDialog } from './shared/ReconciliationFollowUpDialog';
 
 interface APRecReviewProps {
   companyId: string;
@@ -141,43 +145,118 @@ interface APReconciliationResult {
   locked?: boolean;
 }
 
+
 export function APRecReview({ companyId, companyName, period, onBack }: APRecReviewProps) {
+  const [activeTab, setActiveTab] = useState('needs-attention');
+  const [isLoadingReconciliation, setIsLoadingReconciliation] = useState(true);
   const [reconciliationResult, setReconciliationResult] = useState<APReconciliationResult | null>(null);
-  const [isLoadingReconciliation, setIsLoadingReconciliation] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showFollowUpDialog, setShowFollowUpDialog] = useState(false);
-  const [selectedVendorItem, setSelectedVendorItem] = useState<UnmatchedVendor | null>(null);
-  const [selectedAPItem, setSelectedAPItem] = useState<UnmatchedAP | null>(null);
-  const [followUpNote, setFollowUpNote] = useState('');
-  const [activeTab, setActiveTab] = useState<'needs-attention' | 'follow-up' | 'resolved' | 'pre-matched'>('needs-attention');
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [editingType, setEditingType] = useState<'vendor' | 'ap' | null>(null);
-  const [showMatchDialog, setShowMatchDialog] = useState(false);
-  const [matchingVendorItem, setMatchingVendorItem] = useState<UnmatchedVendor | null>(null);
-  
-  // Multi-select matching state
-  const [selectedVendorItems, setSelectedVendorItems] = useState<UnmatchedVendor[]>([]);
-  const [selectedAPItems, setSelectedAPItems] = useState<UnmatchedAP[]>([]);
-  
-  // Loading states for individual actions
-  const [loadingActions, setLoadingActions] = useState<Record<string, boolean>>({});
-  
-  // Expanded match groups in resolved section
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  
-  // Optimistic update state - separate from reconciliationResult for real-time updates
+
+  // Lists
   const [unmatchedVendorItems, setUnmatchedVendorItems] = useState<UnmatchedVendor[]>([]);
   const [unmatchedAPItems, setUnmatchedAPItems] = useState<UnmatchedAP[]>([]);
-  const [resolvedItems, setResolvedItems] = useState<any[]>([]);
+  const [resolvedItems, setResolvedItems] = useState<ResolvedItem[]>([]);
   const [followUpItems, setFollowUpItems] = useState<FollowUpItem[]>([]);
 
-  // Period lock state
+  // Counts
+
+
+  // Lock State
   const [isMonthLocked, setIsMonthLocked] = useState(false);
   const [lockDetails, setLockDetails] = useState<any>(null);
 
+  // Dialog States
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingType, setEditingType] = useState<'vendor' | 'ap'>('vendor');
+  const [selectedVendorItem, setSelectedVendorItem] = useState<UnmatchedVendor | null>(null);
+  const [selectedAPItem, setSelectedAPItem] = useState<UnmatchedAP | null>(null);
+
+  const [showFollowUpDialog, setShowFollowUpDialog] = useState(false);
+  const [followUpNote, setFollowUpNote] = useState('');
+
+  const [showMatchDialog, setShowMatchDialog] = useState(false);
+  const [selectedVendorItems, setSelectedVendorItems] = useState<UnmatchedVendor[]>([]);
+  const [selectedAPItems, setSelectedAPItems] = useState<UnmatchedAP[]>([]);
+
+  // Actions
+  const [loadingActions, setLoadingActions] = useState<Record<string, boolean>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  const getCurrencySymbol = (currencyCode?: string) => {
+    const code = currencyCode || 'USD';
+    try {
+      return (0).toLocaleString('en-US', { style: 'currency', currency: code, minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\d/g, '').trim();
+    } catch {
+      return '$';
+    }
+  };
+
+  // Helper functions
+  const toggleGroupExpansion = (groupId: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupId)) {
+      newExpanded.delete(groupId);
+    } else {
+      newExpanded.add(groupId);
+    }
+    setExpandedGroups(newExpanded);
+  };
+
+  const groupResolvedItems = () => {
+    const groups: { groupId: string; items: ResolvedItem[] }[] = [];
+    const grouped = new Map<string, ResolvedItem[]>();
+    const ungrouped: ResolvedItem[] = [];
+
+    resolvedItems.forEach(item => {
+      if (item.matchGroupId) {
+        if (!grouped.has(item.matchGroupId)) {
+          grouped.set(item.matchGroupId, []);
+        }
+        grouped.get(item.matchGroupId)?.push(item);
+      } else {
+        ungrouped.push(item);
+      }
+    });
+
+    grouped.forEach((items, groupId) => {
+      groups.push({ groupId, items });
+    });
+
+    ungrouped.forEach(item => {
+      groups.push({ groupId: `single-${item.markedAt}-${Math.random()}`, items: [item] });
+    });
+
+    return groups;
+  };
+
+  const getTotalAmount = (items: (UnmatchedVendor | UnmatchedAP)[]) => {
+    return items.reduce((sum, i) => {
+      const val = 'transaction' in i ? i.transaction.amount : (i as UnmatchedAP).entry.amount;
+      return sum + val;
+    }, 0);
+  };
+
+  const toggleVendorSelection = (item: UnmatchedVendor) => {
+    if (selectedVendorItems.some(i => i.transaction.id === item.transaction.id)) {
+      setSelectedVendorItems(prev => prev.filter(i => i.transaction.id !== item.transaction.id));
+    } else {
+      setSelectedVendorItems(prev => [...prev, item]);
+    }
+  };
+
+  const toggleAPSelection = (item: UnmatchedAP) => {
+    if (selectedAPItems.some(i => i.entry.id === item.entry.id)) {
+      setSelectedAPItems(prev => prev.filter(i => i.entry.id !== item.entry.id));
+    } else {
+      setSelectedAPItems(prev => [...prev, item]);
+    }
+  };
+
   useEffect(() => {
-    loadLockStatus();
-    loadReconciliationData();
+    if (companyId && period) {
+      loadLockStatus();
+      loadReconciliationData();
+    }
   }, [companyId, period]);
 
   const loadLockStatus = async () => {
@@ -206,7 +285,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     setIsLoadingReconciliation(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/reconciliation?companyId=${companyId}&period=${period}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-reconciliation?companyId=${companyId}&period=${period}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -217,47 +296,53 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       if (response.ok) {
         const data = await response.json();
         console.log('AP Reconciliation data loaded:', data);
-        
-        // Transform the data structure to match our expected format
-        const transformedData: APReconciliationResult = {
-          unmatched_vendor: data.unmatchedVendor || data.unmatched_vendor || [],
-          unmatched_ap: data.unmatchedAP || data.unmatched_ap || [],
-          summary: data.summary || {
-            total_vendor_transactions: (data.matches?.length || 0) + (data.unmatchedVendor?.length || 0),
-            total_ap_entries: (data.matches?.length || 0) + (data.unmatchedAP?.length || 0),
-            matched_count: data.matches?.length || 0,
-            unmatched_vendor_count: data.unmatchedVendor?.length || 0,
-            unmatched_ap_count: data.unmatchedAP?.length || 0,
+
+        // Safety check: ensure we have an object
+        if (!data) {
+          console.error('No data received');
+          setReconciliationResult(null);
+          return;
+        }
+
+        // Unwrap the reconciliation object from the API response
+        const reconciliation = data.reconciliation || data;
+
+        // Double check structure to prevent crash
+        if (!reconciliation) {
+          console.log('Reconciliation object missing');
+          setReconciliationResult(null);
+          return;
+        }
+
+        // Set the reconciliation result with defaults
+        const reconciliationData: APReconciliationResult = {
+          unmatched_vendor: (reconciliation.unmatched_vendor || []).filter((i: any) => i && i.transaction),
+          unmatched_ap: (reconciliation.unmatched_ap || []).filter((i: any) => i && i.entry),
+          summary: reconciliation.summary || {
+            total_vendor_transactions: 0,
+            total_ap_entries: 0,
+            matched_count: 0,
+            unmatched_vendor_count: 0,
+            unmatched_ap_count: 0,
           },
-          resolved_items: data.resolved_items || [],
-          follow_up_items: data.follow_up_items || [],
-          timing_differences: data.timing_differences || [],
-          ignored_items: data.ignored_items || [],
-          pre_matched_items: [],
-          locked: data.locked || false,
+          resolved_items: reconciliation.resolved_items || [],
+          follow_up_items: reconciliation.follow_up_items || [],
+          timing_differences: reconciliation.timing_differences || [],
+          ignored_items: reconciliation.ignored_items || [],
+          pre_matched_items: reconciliation.pre_matched_items || [],
+          locked: reconciliation.locked || false,
         };
 
-        // Convert matched_pairs to pre_matched_items format
-        if (data.matches && data.matches.length > 0) {
-          transformedData.pre_matched_items = data.matches.map((match: any, idx: number) => ({
-            matchGroupId: `pre-match-${idx}`,
-            vendorTransactions: Array.isArray(match.vendor_transaction) ? match.vendor_transaction : [match.vendor_transaction],
-            apEntries: match.ap_entries || [],
-            matchedAt: new Date().toISOString(),
-            confidence: match.match_confidence || match.confidence,
-          }));
-        }
-        
-        setReconciliationResult(transformedData);
-        
+        setReconciliationResult(reconciliationData);
+
         // Initialize optimistic update state
-        setUnmatchedVendorItems(transformedData.unmatched_vendor || []);
-        setUnmatchedAPItems(transformedData.unmatched_ap || []);
-        setResolvedItems(transformedData.resolved_items || []);
-        setFollowUpItems(transformedData.follow_up_items || []);
+        setUnmatchedVendorItems(reconciliationData.unmatched_vendor || []);
+        setUnmatchedAPItems(reconciliationData.unmatched_ap || []);
+        setResolvedItems(reconciliationData.resolved_items || []);
+        setFollowUpItems(reconciliationData.follow_up_items || []);
       } else {
         const errorText = await response.text();
-        console.error('Failed to load AP reconciliation data:', response.status, errorText);
+        console.error('Failed to load AP reconciliation:', response.status, errorText);
         setReconciliationResult(null);
       }
     } catch (error) {
@@ -268,12 +353,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     }
   };
 
-  const formatCurrency = (amount: number): string => {
-    return amount.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
+
 
   const getPeriodLabel = (period: string) => {
     const [year, month] = period.split('-');
@@ -282,14 +362,14 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   };
 
   const handleEditVendorTransaction = (item: UnmatchedVendor) => {
-    setEditingItem({...item.transaction});
+    setEditingItem({ ...item.transaction });
     setEditingType('vendor');
     setSelectedVendorItem(item);
     setShowEditDialog(true);
   };
 
   const handleEditAPEntry = (item: UnmatchedAP) => {
-    setEditingItem({...item.entry});
+    setEditingItem({ ...item.entry });
     setEditingType('ap');
     setSelectedAPItem(item);
     setShowEditDialog(true);
@@ -298,27 +378,25 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   const handleSaveEdit = async () => {
     if (!editingItem) return;
 
-    console.log('Saving edited item:', editingItem, editingType);
-    
-    const originalItem = editingType === 'vendor' 
-      ? selectedVendorItem?.transaction 
+    const originalItem = editingType === 'vendor'
+      ? selectedVendorItem?.transaction
       : selectedAPItem?.entry;
-    
+
     if (!originalItem) {
       toast.error('Original item not found');
       return;
     }
 
     // Optimistic update
-    if (editingType === 'vendor' && editingItem) {
-      setUnmatchedVendorItems(prev => prev.map(item => 
-        item.transaction.id === editingItem.id 
+    if (editingType === 'vendor' && selectedVendorItem) {
+      setUnmatchedVendorItems(prev => prev.map(item =>
+        item.transaction.id === editingItem.id
           ? { ...item, transaction: { ...item.transaction, ...editingItem } }
           : item
       ));
-      
+
       setFollowUpItems(prev => prev.map(followUpItem => {
-        if (followUpItem.type === 'vendor' && followUpItem.item?.transaction?.id === editingItem.id) {
+        if (followUpItem.type === 'vendor' && 'transaction' in followUpItem.item && followUpItem.item.transaction.id === editingItem.id) {
           return {
             ...followUpItem,
             item: {
@@ -329,28 +407,15 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         }
         return followUpItem;
       }));
-      
-      setResolvedItems(prev => prev.map(resolvedItem => {
-        if (resolvedItem.type === 'vendor' && resolvedItem.item?.transaction?.id === editingItem.id) {
-          return {
-            ...resolvedItem,
-            item: {
-              ...resolvedItem.item,
-              transaction: { ...resolvedItem.item.transaction, ...editingItem }
-            }
-          };
-        }
-        return resolvedItem;
-      }));
-    } else if (editingType === 'ap' && editingItem) {
-      setUnmatchedAPItems(prev => prev.map(item => 
-        item.entry.id === editingItem.id 
+    } else if (editingType === 'ap' && selectedAPItem) {
+      setUnmatchedAPItems(prev => prev.map(item =>
+        item.entry.id === editingItem.id
           ? { ...item, entry: { ...item.entry, ...editingItem } }
           : item
       ));
-      
+
       setFollowUpItems(prev => prev.map(followUpItem => {
-        if (followUpItem.type === 'ap' && followUpItem.item?.entry?.id === editingItem.id) {
+        if (followUpItem.type === 'ap' && 'entry' in followUpItem.item && followUpItem.item.entry.id === editingItem.id) {
           return {
             ...followUpItem,
             item: {
@@ -361,23 +426,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         }
         return followUpItem;
       }));
-      
-      setResolvedItems(prev => prev.map(resolvedItem => {
-        if (resolvedItem.type === 'ap' && resolvedItem.item?.entry?.id === editingItem.id) {
-          return {
-            ...resolvedItem,
-            item: {
-              ...resolvedItem.item,
-              entry: { ...resolvedItem.item.entry, ...editingItem }
-            }
-          };
-        }
-        return resolvedItem;
-      }));
     }
-    
+
     setShowEditDialog(false);
-    
+
     // Call backend to persist changes
     try {
       const requestPayload = {
@@ -396,9 +448,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
           amount: editingItem.amount
         }
       };
-      
-      console.log('📤 Sending update request:', requestPayload);
-      
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/update-transaction`,
         {
@@ -412,30 +462,27 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       );
 
       if (response.ok) {
-        console.log('✅ Transaction updated successfully in backend');
         toast.success('Transaction updated successfully!');
       } else {
         const errorText = await response.text();
         console.error('Failed to update transaction:', response.status, errorText);
         toast.error('Failed to save changes. Please try again.');
-        
         await loadReconciliationData();
       }
     } catch (error) {
       console.error('Error updating transaction:', error);
       toast.error('Network error. Please check your connection and try again.');
-      
       await loadReconciliationData();
     }
   };
 
   const handleApproveForJE = async (item: UnmatchedVendor | UnmatchedAP, type: 'vendor' | 'ap') => {
-    const itemId = type === 'vendor' ? (item as UnmatchedVendor).transaction.id : (item as UnmatchedAP).entry.id;
+    const itemId = 'transaction' in item ? item.transaction.id : item.entry.id;
     const actionKey = `approve-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
-    if (type === 'vendor') {
+    if (type === 'vendor' && 'transaction' in item) {
       setUnmatchedVendorItems(prev => prev.filter(i => i.transaction.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'vendor' as const,
@@ -444,7 +491,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         status: 'resolved',
         resolution: 'Transaction sent to Journal Entries section to be recorded'
       }]);
-    } else {
+    } else if (type === 'ap' && 'entry' in item) {
       setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'ap' as const,
@@ -454,7 +501,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         resolution: 'Transaction sent to Journal Entries section to be recorded'
       }]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/journal-entries/approve-suggestion`,
@@ -481,15 +528,15 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         console.error('Failed to approve transaction:', response.status, errorText);
         toast.error('Failed to approve transaction. Please try again.');
         // Revert optimistic update on error
-        if (type === 'vendor') {
+        if (type === 'vendor' && 'transaction' in item) {
           setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
-          setResolvedItems(prev => prev.filter(i => 
-            !(i.type === 'vendor' && i.item?.transaction?.id === itemId)
+          setResolvedItems(prev => prev.filter(i =>
+            !(i.type === 'vendor' && i.item && 'transaction' in i.item && i.item.transaction.id === itemId)
           ));
-        } else {
+        } else if (type === 'ap' && 'entry' in item) {
           setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
-          setResolvedItems(prev => prev.filter(i => 
-            !(i.type === 'ap' && i.item?.entry?.id === itemId)
+          setResolvedItems(prev => prev.filter(i =>
+            !(i.type === 'ap' && i.item && 'entry' in i.item && i.item.entry.id === itemId)
           ));
         }
       }
@@ -497,15 +544,15 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       console.error('Failed to approve transaction:', error);
       toast.error('Failed to approve transaction. Please try again.');
       // Revert optimistic update on error
-      if (type === 'vendor') {
+      if (type === 'vendor' && 'transaction' in item) {
         setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
-        setResolvedItems(prev => prev.filter(i => 
-          !(i.type === 'vendor' && i.item?.transaction?.id === itemId)
+        setResolvedItems(prev => prev.filter(i =>
+          !(i.type === 'vendor' && i.item && 'transaction' in i.item && i.item.transaction.id === itemId)
         ));
-      } else {
+      } else if (type === 'ap' && 'entry' in item) {
         setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
-        setResolvedItems(prev => prev.filter(i => 
-          !(i.type === 'ap' && i.item?.entry?.id === itemId)
+        setResolvedItems(prev => prev.filter(i =>
+          !(i.type === 'ap' && i.item && 'entry' in i.item && i.item.entry.id === itemId)
         ));
       }
     } finally {
@@ -517,7 +564,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     const itemId = item.entry.id;
     const actionKey = `reverse-ap-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
     setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
     setResolvedItems(prev => [...prev, {
@@ -527,7 +574,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       status: 'resolved',
       resolution: 'Reversing journal entry sent to Journal Entries section'
     }]);
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/journal-entries/reverse-je`,
@@ -554,7 +601,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         toast.error('Failed to create reversing JE. Please try again.');
         // Revert optimistic update on error
         setUnmatchedAPItems(prev => [...prev, item]);
-        setResolvedItems(prev => prev.filter(i => 
+        setResolvedItems(prev => prev.filter(i =>
           !(i.type === 'ap' && i.item?.entry?.id === itemId)
         ));
       }
@@ -563,7 +610,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       toast.error('Failed to create reversing JE. Please try again.');
       // Revert optimistic update on error
       setUnmatchedAPItems(prev => [...prev, item]);
-      setResolvedItems(prev => prev.filter(i => 
+      setResolvedItems(prev => prev.filter(i =>
         !(i.type === 'ap' && i.item?.entry?.id === itemId)
       ));
     } finally {
@@ -572,12 +619,12 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   };
 
   const handleMarkAsTimingDifference = async (item: UnmatchedVendor | UnmatchedAP, type: 'vendor' | 'ap') => {
-    const itemId = type === 'vendor' ? (item as UnmatchedVendor).transaction.id : (item as UnmatchedAP).entry.id;
+    const itemId = 'transaction' in item ? item.transaction.id : item.entry.id;
     const actionKey = `timing-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
-    if (type === 'vendor') {
+    if (type === 'vendor' && 'transaction' in item) {
       setUnmatchedVendorItems(prev => prev.filter(i => i.transaction.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'vendor' as const,
@@ -587,7 +634,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         resolution: 'Will clear next period',
         matchGroupId: `timing-${itemId}`
       }]);
-    } else {
+    } else if (type === 'ap' && 'entry' in item) {
       setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'ap' as const,
@@ -598,7 +645,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         matchGroupId: `timing-${itemId}`
       }]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/mark-timing-difference`,
@@ -624,10 +671,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         console.error('Failed to mark as timing difference:', response.status, errorText);
         toast.error('Failed to mark as timing difference.');
         // Revert optimistic update
-        if (type === 'vendor') {
+        if (type === 'vendor' && 'transaction' in item) {
           setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
           setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `timing-${itemId}`));
-        } else {
+        } else if (type === 'ap' && 'entry' in item) {
           setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
           setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `timing-${itemId}`));
         }
@@ -636,10 +683,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       console.error('Failed to mark as timing difference:', error);
       toast.error('Failed to mark as timing difference.');
       // Revert optimistic update
-      if (type === 'vendor') {
+      if (type === 'vendor' && 'transaction' in item) {
         setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
         setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `timing-${itemId}`));
-      } else {
+      } else if (type === 'ap' && 'entry' in item) {
         setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
         setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `timing-${itemId}`));
       }
@@ -649,12 +696,12 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   };
 
   const handleMarkAsIgnored = async (item: UnmatchedVendor | UnmatchedAP, type: 'vendor' | 'ap') => {
-    const itemId = type === 'vendor' ? (item as UnmatchedVendor).transaction.id : (item as UnmatchedAP).entry.id;
+    const itemId = 'transaction' in item ? item.transaction.id : item.entry.id;
     const actionKey = `ignore-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
-    if (type === 'vendor') {
+    if (type === 'vendor' && 'transaction' in item) {
       setUnmatchedVendorItems(prev => prev.filter(i => i.transaction.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'vendor' as const,
@@ -664,7 +711,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         resolution: 'Marked as non-issue',
         matchGroupId: `ignored-${itemId}`
       }]);
-    } else {
+    } else if (type === 'ap' && 'entry' in item) {
       setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
       setResolvedItems(prev => [...prev, {
         type: 'ap' as const,
@@ -675,7 +722,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         matchGroupId: `ignored-${itemId}`
       }]);
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/mark-ignored`,
@@ -701,10 +748,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         console.error('Failed to mark as ignored:', response.status, errorText);
         toast.error('Failed to mark as ignored.');
         // Revert optimistic update
-        if (type === 'vendor') {
+        if (type === 'vendor' && 'transaction' in item) {
           setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
           setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `ignored-${itemId}`));
-        } else {
+        } else if (type === 'ap' && 'entry' in item) {
           setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
           setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `ignored-${itemId}`));
         }
@@ -713,10 +760,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       console.error('Failed to mark as ignored:', error);
       toast.error('Failed to mark as ignored.');
       // Revert optimistic update
-      if (type === 'vendor') {
+      if (type === 'vendor' && 'transaction' in item) {
         setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
         setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `ignored-${itemId}`));
-      } else {
+      } else if (type === 'ap' && 'entry' in item) {
         setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
         setResolvedItems(prev => prev.filter(r => r.matchGroupId !== `ignored-${itemId}`));
       }
@@ -726,10 +773,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   };
 
   const handleOpenFollowUpDialog = (item: UnmatchedVendor | UnmatchedAP, type: 'vendor' | 'ap') => {
-    if (type === 'vendor') {
+    if (type === 'vendor' && 'transaction' in item) {
       setSelectedVendorItem(item as UnmatchedVendor);
       setSelectedAPItem(null);
-    } else {
+    } else if (type === 'ap' && 'entry' in item) {
       setSelectedAPItem(item as UnmatchedAP);
       setSelectedVendorItem(null);
     }
@@ -746,10 +793,12 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
 
     const item = selectedVendorItem || selectedAPItem;
     const type = editingType;
-    const itemId = type === 'vendor' ? (item as UnmatchedVendor)?.transaction.id : (item as UnmatchedAP)?.entry.id;
+    if (!item) return;
+
+    const itemId = 'transaction' in item ? (item as UnmatchedVendor).transaction.id : (item as UnmatchedAP).entry.id;
 
     // Optimistic update
-    if (type === 'vendor' && item) {
+    if (type === 'vendor' && 'transaction' in item) {
       setUnmatchedVendorItems(prev => prev.filter(i => i.transaction.id !== itemId));
       setFollowUpItems(prev => [...prev, {
         item: item as UnmatchedVendor,
@@ -757,7 +806,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         note: followUpNote,
         markedAt: new Date().toISOString()
       }]);
-    } else if (type === 'ap' && item) {
+    } else if (type === 'ap' && 'entry' in item) {
       setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
       setFollowUpItems(prev => [...prev, {
         item: item as UnmatchedAP,
@@ -797,12 +846,12 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         // Revert optimistic update
         if (type === 'vendor' && item) {
           setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
-          setFollowUpItems(prev => prev.filter(i => 
+          setFollowUpItems(prev => prev.filter(i =>
             i.type === 'vendor' ? (i.item as UnmatchedVendor).transaction.id !== itemId : true
           ));
         } else if (type === 'ap' && item) {
           setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
-          setFollowUpItems(prev => prev.filter(i => 
+          setFollowUpItems(prev => prev.filter(i =>
             i.type === 'ap' ? (i.item as UnmatchedAP).entry.id !== itemId : true
           ));
         }
@@ -813,58 +862,35 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       // Revert optimistic update
       if (type === 'vendor' && item) {
         setUnmatchedVendorItems(prev => [...prev, item as UnmatchedVendor]);
-        setFollowUpItems(prev => prev.filter(i => 
+        setFollowUpItems(prev => prev.filter(i =>
           i.type === 'vendor' ? (i.item as UnmatchedVendor).transaction.id !== itemId : true
         ));
       } else if (type === 'ap' && item) {
         setUnmatchedAPItems(prev => [...prev, item as UnmatchedAP]);
-        setFollowUpItems(prev => prev.filter(i => 
+        setFollowUpItems(prev => prev.filter(i =>
           i.type === 'ap' ? (i.item as UnmatchedAP).entry.id !== itemId : true
         ));
       }
     }
   };
 
-  const handleOpenMatchDialog = (item: UnmatchedVendor) => {
-    setMatchingVendorItem(item);
-    setSelectedVendorItems([item]); // Pre-select the clicked item
-    setSelectedAPItems([]);
+  const handleOpenMatchDialog = (item: UnmatchedVendor | UnmatchedAP) => {
+    if ('transaction' in item) {
+      setSelectedVendorItems([item]);
+      setSelectedAPItems([]);
+    } else {
+      setSelectedAPItems([item]);
+      setSelectedVendorItems([]);
+    }
     setShowMatchDialog(true);
   };
 
-  const toggleVendorSelection = (item: UnmatchedVendor) => {
-    setSelectedVendorItems(prev => {
-      const isSelected = prev.some(i => i.transaction.id === item.transaction.id);
-      if (isSelected) {
-        return prev.filter(i => i.transaction.id !== item.transaction.id);
-      } else {
-        return [...prev, item];
-      }
-    });
-  };
 
-  const toggleAPSelection = (item: UnmatchedAP) => {
-    setSelectedAPItems(prev => {
-      const isSelected = prev.some(i => i.entry.id === item.entry.id);
-      if (isSelected) {
-        return prev.filter(i => i.entry.id !== item.entry.id);
-      } else {
-        return [...prev, item];
-      }
-    });
-  };
-
-  const getTotalAmount = (items: (UnmatchedVendor | UnmatchedAP)[]) => {
-    return items.reduce((sum, item) => {
-      const amount = 'transaction' in item ? item.transaction.amount : item.entry.amount;
-      return sum + amount;
-    }, 0);
-  };
 
   const handleMatchItems = async (apItem?: UnmatchedAP) => {
     // If apItem is provided (old single-select flow), use it
     // Otherwise use the multi-select arrays
-    const vendorItems = selectedVendorItems.length > 0 ? selectedVendorItems : (matchingVendorItem ? [matchingVendorItem] : []);
+    const vendorItems = selectedVendorItems;
     const apItems = apItem ? [apItem] : selectedAPItems;
 
     if (vendorItems.length === 0 || apItems.length === 0) {
@@ -878,10 +904,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     // Optimistic update
     const vendorIds = vendorItems.map(i => i.transaction.id);
     const apIds = apItems.map(i => i.entry.id);
-    
+
     setUnmatchedVendorItems(prev => prev.filter(i => !vendorIds.includes(i.transaction.id)));
     setUnmatchedAPItems(prev => prev.filter(i => !apIds.includes(i.entry.id)));
-    
+
     // Add to resolved items
     const newResolvedItems: any[] = [];
     vendorItems.forEach(item => {
@@ -927,7 +953,6 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       if (response.ok) {
         toast.success(`Successfully matched ${vendorItems.length} vendor transaction(s) with ${apItems.length} AP entry(ies)!`);
         setShowMatchDialog(false);
-        setMatchingVendorItem(null);
         setSelectedVendorItems([]);
         setSelectedAPItems([]);
       } else {
@@ -949,21 +974,21 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
 
   const handleDeleteTransaction = async (item: UnmatchedVendor | UnmatchedAP, type: 'vendor' | 'ap') => {
     const itemId = type === 'vendor' ? (item as UnmatchedVendor).transaction.id : (item as UnmatchedAP).entry.id;
-    
+
     if (!confirm('Are you sure you want to delete this transaction? This action cannot be undone.')) {
       return;
     }
 
     const actionKey = `delete-${type}-${itemId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Optimistic update
     if (type === 'vendor') {
       setUnmatchedVendorItems(prev => prev.filter(i => i.transaction.id !== itemId));
     } else {
       setUnmatchedAPItems(prev => prev.filter(i => i.entry.id !== itemId));
     }
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/delete-transaction`,
@@ -1057,7 +1082,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
   const handleUnmatchGroup = async (matchGroupId: string) => {
     const actionKey = `unmatch-${matchGroupId}`;
     setLoadingActions(prev => ({ ...prev, [actionKey]: true }));
-    
+
     // Find the pre-matched group
     const matchGroup = reconciliationResult?.pre_matched_items?.find(g => g.matchGroupId === matchGroupId);
     if (!matchGroup) {
@@ -1065,7 +1090,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       setLoadingActions(prev => ({ ...prev, [actionKey]: false }));
       return;
     }
-    
+
     // Optimistically remove from pre-matched items
     setReconciliationResult(prev => {
       if (!prev) return prev;
@@ -1074,23 +1099,23 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         pre_matched_items: prev.pre_matched_items?.filter(g => g.matchGroupId !== matchGroupId) || [],
       };
     });
-    
+
     // Create unmatched items from the match group
     const unmatchedVendorItems: UnmatchedVendor[] = matchGroup.vendorTransactions.map(transaction => ({
       transaction,
       suggested_action: 'Review this unmatched vendor transaction',
     }));
-    
+
     const unmatchedAPEntries: UnmatchedAP[] = matchGroup.apEntries.map(entry => ({
       entry,
       reason: 'Unmatched from pre-matched group',
       action: 'Review this unmatched AP entry',
     }));
-    
+
     // Add to needs attention (unmatched items)
     setUnmatchedVendorItems(prev => [...prev, ...unmatchedVendorItems]);
     setUnmatchedAPItems(prev => [...prev, ...unmatchedAPEntries]);
-    
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/unmatch-group`,
@@ -1145,45 +1170,14 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     }
   };
 
-  const groupResolvedItems = () => {
-    if (!resolvedItems) return [];
-    
-    const groups = new Map<string, ResolvedItem[]>();
-    
-    resolvedItems
-      .filter(item => item && item.item)
-      .forEach(item => {
-        const groupId = item.matchGroupId || `single-${item.markedAt}`;
-        if (!groups.has(groupId)) {
-          groups.set(groupId, []);
-        }
-        groups.get(groupId)!.push(item);
-      });
-    
-    return Array.from(groups.entries()).map(([groupId, items]) => ({
-      groupId,
-      items,
-    }));
-  };
 
-  const toggleGroupExpansion = (groupId: string) => {
-    setExpandedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupId)) {
-        newSet.delete(groupId);
-      } else {
-        newSet.add(groupId);
-      }
-      return newSet;
-    });
-  };
 
   if (isLoadingReconciliation) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <Loader2 className="size-8 text-gray-400 animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-500">Loading AP reconciliation data...</p>
+          <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading AP reconciliation data...</p>
         </div>
       </div>
     );
@@ -1201,7 +1195,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         <Alert>
           <AlertCircle className="size-4" />
           <AlertDescription>
-            No AP reconciliation found for {companyName} - {getPeriodLabel(period)}. 
+            No AP reconciliation found for {companyName} - {getPeriodLabel(period)}.
             Please run an AP reconciliation first.
           </AlertDescription>
         </Alert>
@@ -1209,15 +1203,15 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
     );
   }
 
-  const needsAttentionCount = (unmatchedVendorItems?.length || 0) + 
-                             (unmatchedAPItems?.length || 0);
+  const needsAttentionCount = (unmatchedVendorItems?.length || 0) +
+    (unmatchedAPItems?.length || 0);
   const followUpCount = followUpItems?.length || 0;
   const resolvedCount = resolvedItems?.length || 0;
 
   return (
     <div className="space-y-6">
-      <Toaster />
-      
+
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -1326,321 +1320,136 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
         </TabsList>
 
         {/* Tab 1: Needs Attention */}
-        <TabsContent value="needs-attention" className="space-y-6">
-          {/* Unmatched Vendor Transactions */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="size-5 text-red-600" />
-                    Unmatched Vendor Transactions
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These transactions appear in vendor statements but have no matching ledger entries.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                  {unmatchedVendorItems?.length || 0} items
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {unmatchedVendorItems && unmatchedVendorItems.length > 0 ? (
-                <div className="space-y-3">
-                  {unmatchedVendorItems.map((item, idx) => (
-                    <div key={idx} className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium text-gray-900">{item.transaction.description}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {item.transaction.date}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-gray-600 mb-2">
-                            <span className="font-medium">Suggested Action:</span> {item.suggested_action}
-                          </p>
-                          {item.suggested_je && (
-                            <div className="text-xs bg-white border border-red-200 rounded p-3 mt-2">
-                              <div className="font-medium text-gray-900 mb-1">AI Suggested Journal Entry:</div>
-                              <div className="space-y-1 text-gray-600">
-                                <div>• Debit: {item.suggested_je.debit_account}</div>
-                                <div>• Credit: {item.suggested_je.credit_account}</div>
-                                <div>• Amount: €{formatCurrency(item.suggested_je.amount)}</div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="ml-4">
-                          <div className={`text-lg font-medium mb-2 ${item.transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            €{formatCurrency(Math.abs(item.transaction.amount))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-2 border-t border-red-200">
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          className="gap-2 bg-green-600 hover:bg-green-700"
-                          onClick={() => handleApproveForJE(item, 'vendor')}
-                          disabled={isMonthLocked || loadingActions[`approve-vendor-${item.transaction.id}`]}
-                        >
-                          {loadingActions[`approve-vendor-${item.transaction.id}`] ? (
-                            <>
-                              <Loader2 className="size-3 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <ThumbsUp className="size-3" />
-                              Approve for JE
-                            </>
-                          )}
-                        </Button>
-
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2">
-                              <Link className="size-3" />
-                              Match
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-56">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenMatchDialog(item)}
-                            >
-                              <Link className="size-4 mr-2" />
-                              Match to AP Entry
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2"
-                          onClick={() => handleEditVendorTransaction(item)}
-                          disabled={isMonthLocked}
-                        >
-                          <Edit2 className="size-3" />
-                          Edit / Correct
-                        </Button>
-
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2">
-                              More Actions
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="bottom" sideOffset={8} className="w-64">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsTimingDifference(item, 'vendor')}
-                            >
-                              <Clock className="size-4 mr-2 text-blue-600" />
-                              <div>
-                                <div className="text-sm">Mark as Timing Difference</div>
-                                <div className="text-xs text-gray-500">Clears next month/period</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsIgnored(item, 'vendor')}
-                            >
-                              <EyeOff className="size-4 mr-2 text-gray-600" />
-                              <div>
-                                <div className="text-sm">Mark as Non-Issue / Ignore</div>
-                                <div className="text-xs text-gray-500">Reviewed, no action needed</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenFollowUpDialog(item, 'vendor')}
-                            >
-                              <MessageSquare className="size-4 mr-2 text-purple-600" />
-                              <div>
-                                <div className="text-sm">Request Information</div>
-                                <div className="text-xs text-gray-500">Flag for follow-up</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer text-red-600"
-                              onClick={() => handleDeleteTransaction(item, 'vendor')}
-                            >
-                              <Trash2 className="size-4 mr-2" />
-                              <div>
-                                <div className="text-sm">Delete Transaction</div>
-                                <div className="text-xs text-gray-500">Permanently remove</div>
-                              </div>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+        <TabsContent value="needs-attention" className="h-[calc(100vh-400px)]">
+          <div className="grid grid-cols-2 gap-4 h-full overflow-hidden">
+            {/* Left Column: Unmatched Vendor Transactions */}
+            <div className="overflow-y-auto pr-2 overscroll-contain h-full">
+              <Card className="h-fit">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="size-5 text-red-600" />
+                        Unmatched Vendor Transactions
+                      </CardTitle>
+                      <CardDescription className="mt-2">
+                        These transactions appear in vendor statements but have no matching ledger entries.
+                      </CardDescription>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">All vendor transactions have been matched!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Unmatched AP Entries */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <BookOpen className="size-5 text-amber-600" />
-                    Unmatched AP Entries
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    These entries appear in the AP ledger but have no matching vendor transactions.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                  {unmatchedAPItems?.length || 0} items
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {unmatchedAPItems && unmatchedAPItems.length > 0 ? (
-                <div className="space-y-3">
-                  {unmatchedAPItems.map((item, idx) => (
-                    <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium text-gray-900">{item.entry.description}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {item.entry.date}
-                            </Badge>
-                          </div>
-                          <div className="space-y-1 text-xs text-gray-600">
-                            <p>
-                              <span className="font-medium">Reason:</span> {item.reason}
-                            </p>
-                            <p>
-                              <span className="font-medium">Recommended Action:</span> {item.action}
-                            </p>
-                            {item.entry.account && (
-                              <p>
-                                <span className="font-medium">Account:</span> {item.entry.account}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className={`text-lg font-medium ${item.entry.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            €{formatCurrency(Math.abs(item.entry.amount))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-2 border-t border-amber-200">
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                          onClick={() => handleReverseJE(item)}
-                          disabled={isMonthLocked || loadingActions[`reverse-ap-${item.entry.id}`]}
-                        >
-                          {loadingActions[`reverse-ap-${item.entry.id}`] ? (
-                            <>
-                              <Loader2 className="size-3 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Undo2 className="size-3" />
-                              Reverse JE
-                            </>
-                          )}
-                        </Button>
-
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline"
-                          className="gap-2"
-                          onClick={() => handleEditAPEntry(item)}
-                          disabled={isMonthLocked}
-                        >
-                          <Edit2 className="size-3" />
-                          Edit / Correct
-                        </Button>
-
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" size="sm" variant="outline" className="gap-2">
-                              More Actions
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="bottom" sideOffset={8} className="w-64">
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsTimingDifference(item, 'ap')}
-                            >
-                              <Clock className="size-4 mr-2 text-blue-600" />
-                              <div>
-                                <div className="text-sm">Mark as Timing Difference</div>
-                                <div className="text-xs text-gray-500">Clears next month/period</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleMarkAsIgnored(item, 'ap')}
-                            >
-                              <EyeOff className="size-4 mr-2 text-gray-600" />
-                              <div>
-                                <div className="text-sm">Mark as Non-Issue / Ignore</div>
-                                <div className="text-xs text-gray-500">Reviewed, no action needed</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer"
-                              onClick={() => handleOpenFollowUpDialog(item, 'ap')}
-                            >
-                              <MessageSquare className="size-4 mr-2 text-purple-600" />
-                              <div>
-                                <div className="text-sm">Request Information</div>
-                                <div className="text-xs text-gray-500">Flag for follow-up</div>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="cursor-pointer text-red-600"
-                              onClick={() => handleDeleteTransaction(item, 'ap')}
-                            >
-                              <Trash2 className="size-4 mr-2" />
-                              <div>
-                                <div className="text-sm">Delete Entry</div>
-                                <div className="text-xs text-gray-500">Permanently remove</div>
-                              </div>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                      {unmatchedVendorItems?.length || 0} items
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {unmatchedVendorItems && unmatchedVendorItems.length > 0 ? (
+                    <div className="space-y-3">
+                      {unmatchedVendorItems.map((item, idx) => (
+                        <UnmatchedItemCard
+                          key={idx}
+                          type="vendor"
+                          item={{
+                            data: {
+                              id: item.transaction.id,
+                              date: item.transaction.date,
+                              description: item.transaction.description,
+                              amount: item.transaction.amount,
+                              currency: item.transaction.currency
+                              // details: item.suggested_je  <-- REMOVED: This raw object caused the crash
+                            },
+                            suggested_je: item.suggested_je
+                          }}
+                          currency={(item.transaction as any).currency}
+                          loadingActions={loadingActions}
+                          isMonthLocked={isMonthLocked}
+                          onApproveJE={() => handleApproveForJE(item, 'vendor')}
+                          onMatch={() => handleOpenMatchDialog(item)}
+                          onEdit={() => handleEditVendorTransaction(item)}
+                          onIgnore={() => handleMarkAsIgnored(item, 'vendor')}
+                          onTimingDifference={() => handleMarkAsTimingDifference(item, 'vendor')}
+                          onRequestInfo={() => handleOpenFollowUpDialog(item, 'vendor')}
+                          onDelete={() => handleDeleteTransaction(item, 'vendor')}
+                          matchActionLabel="Match to AP Entry"
+                        />
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">All AP entries have been matched!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  ) : (
+                    <div className="text-center py-8">
+                      <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
+                      <p className="text-sm text-gray-600">All vendor transactions have been matched!</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right Column: Unmatched AP Entries */}
+            <div className="overflow-y-auto pl-2 overscroll-contain h-full">
+              <Card className="h-fit">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <BookOpen className="size-5 text-amber-600" />
+                        Unmatched AP Entries
+                      </CardTitle>
+                      <CardDescription className="mt-2">
+                        These entries appear in the AP ledger but have no matching vendor transactions.
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                      {unmatchedAPItems?.length || 0} items
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {unmatchedAPItems && unmatchedAPItems.length > 0 ? (
+                    <div className="space-y-3">
+                      {unmatchedAPItems.map((item, idx) => (
+                        <UnmatchedItemCard
+                          key={idx}
+                          type="ap"
+                          item={{
+                            data: {
+                              id: item.entry.id,
+                              date: item.entry.date,
+                              description: item.entry.description,
+                              amount: item.entry.amount,
+                              currency: (item.entry as any).currency,
+                              details: (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Vendor: {item.entry.vendor}
+                                </div>
+                              )
+                            }
+                          }}
+                          currency={(item.entry as any).currency}
+                          loadingActions={loadingActions}
+                          isMonthLocked={isMonthLocked}
+                          primaryActionLabel="Reverse JE"
+                          primaryActionIcon={<Undo2 className="size-3" />}
+                          primaryActionClassName="gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+                          onApproveJE={() => handleReverseJE(item)}
+                          onMatch={() => handleOpenMatchDialog(item)}
+                          onEdit={() => handleEditAPEntry(item)}
+                          onIgnore={() => handleMarkAsIgnored(item, 'ap')}
+                          onTimingDifference={() => handleMarkAsTimingDifference(item, 'ap')}
+                          onRequestInfo={() => handleOpenFollowUpDialog(item, 'ap')}
+                          onDelete={() => handleDeleteTransaction(item, 'ap')}
+                          matchActionLabel="Match to Vendor Transaction"
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <CheckCircle2 className="size-12 text-green-500 mx-auto mb-3" />
+                      <p className="text-sm text-gray-600">All AP entries have been matched!</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Tab 2: Follow-Up Needed */}
@@ -1660,10 +1469,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                 <div className="space-y-3">
                   {followUpItems.map((followUpItem, idx) => {
                     const item = followUpItem.item;
-                    const transaction = followUpItem.type === 'vendor' 
-                      ? (item as UnmatchedVendor).transaction 
+                    const transaction = followUpItem.type === 'vendor'
+                      ? (item as UnmatchedVendor).transaction
                       : (item as UnmatchedAP).entry;
-                    
+
                     return (
                       <div key={idx} className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
                         <div className="flex items-start justify-between mb-3">
@@ -1684,14 +1493,14 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                           </div>
                           <div className="ml-4">
                             <div className={`text-lg font-medium ${transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                              €{formatCurrency(Math.abs(transaction.amount))}
+                              {getCurrencySymbol((transaction as any).currency)}{formatCurrency(Math.abs(transaction.amount))}
                             </div>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-2 border-t border-purple-200">
-                          <Button 
+                          <Button
                             type="button"
-                            size="sm" 
+                            size="sm"
                             className="gap-2 bg-blue-600 hover:bg-blue-700"
                             onClick={() => handleMoveBackToNeedsAttention(followUpItem)}
                             disabled={isMonthLocked}
@@ -1732,10 +1541,10 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                   {groupResolvedItems().map(({ groupId, items }) => {
                     const isExpanded = expandedGroups.has(groupId);
                     const isGroup = items.length > 1;
-                    
+
                     return (
                       <div key={groupId} className="border border-green-200 rounded-lg overflow-hidden">
-                        <div 
+                        <div
                           className={`p-4 bg-green-50 ${isGroup ? 'cursor-pointer hover:bg-green-100' : ''}`}
                           onClick={() => isGroup && toggleGroupExpansion(groupId)}
                         >
@@ -1780,7 +1589,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                             </div>
                           </div>
                         </div>
-                        
+
                         {(isExpanded || !isGroup) && (
                           <div className="bg-white border-t border-green-200">
                             {items.map((resolvedItem, idx) => {
@@ -1788,7 +1597,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                               const transaction = resolvedItem.type === 'vendor'
                                 ? (item as UnmatchedVendor).transaction
                                 : (item as UnmatchedAP).entry;
-                              
+
                               return (
                                 <div key={idx} className={`p-3 ${idx > 0 ? 'border-t border-gray-200' : ''}`}>
                                   <div className="flex items-center justify-between">
@@ -1803,7 +1612,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                                     </div>
                                     <div className="ml-4">
                                       <div className={`text-sm font-medium ${transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                        €{formatCurrency(Math.abs(transaction.amount))}
+                                        {getCurrencySymbol((transaction as any).currency)}{formatCurrency(Math.abs(transaction.amount))}
                                       </div>
                                     </div>
                                   </div>
@@ -1851,7 +1660,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                   {reconciliationResult?.pre_matched_items?.map((matchGroup, idx) => {
                     const vendorTotal = matchGroup.vendorTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
                     const apTotal = matchGroup.apEntries.reduce((sum, e) => sum + Math.abs(e.amount), 0);
-                    
+
                     return (
                       <div key={idx} className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="flex items-start justify-between mb-3">
@@ -1868,12 +1677,12 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                                 {new Date(matchGroup.matchedAt).toLocaleDateString()}
                               </Badge>
                             </div>
-                            
+
                             <div className="text-xs bg-white border border-blue-200 rounded p-3 mt-2">
                               <div className="font-medium text-gray-900 mb-2">Match Summary:</div>
                               <div className="space-y-1 text-gray-600">
-                                <p>Vendor Total: €{formatCurrency(vendorTotal)}</p>
-                                <p>AP Total: €{formatCurrency(apTotal)}</p>
+                                <p>Vendor Total: {getCurrencySymbol()}{formatCurrency(vendorTotal)}</p>
+                                <p>AP Total: {getCurrencySymbol()}{formatCurrency(apTotal)}</p>
                                 <p className="text-gray-400 mt-2">Match ID: {matchGroup.matchGroupId}</p>
                               </div>
                             </div>
@@ -1892,7 +1701,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                                       <span className="text-gray-500">{transaction.date}</span>
                                     </div>
                                     <span className={`font-medium ${transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                      €{formatCurrency(Math.abs(transaction.amount))}
+                                      {getCurrencySymbol((transaction as any).currency)}{formatCurrency(Math.abs(transaction.amount))}
                                     </span>
                                   </div>
                                 </div>
@@ -1913,7 +1722,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                                       <span className="text-gray-500">{entry.date}</span>
                                     </div>
                                     <span className={`font-medium ${entry.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                      €{formatCurrency(Math.abs(entry.amount))}
+                                      {getCurrencySymbol((entry as any).currency)}{formatCurrency(Math.abs(entry.amount))}
                                     </span>
                                   </div>
                                 </div>
@@ -1922,14 +1731,14 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                           </div>
                           <div className="ml-4">
                             <div className="text-lg font-medium text-blue-600">
-                              €{formatCurrency(vendorTotal)}
+                              {getCurrencySymbol()}{formatCurrency(vendorTotal)}
                             </div>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-2 border-t border-blue-200">
-                          <Button 
+                          <Button
                             type="button"
-                            size="sm" 
+                            size="sm"
                             variant="outline"
                             className="gap-2 bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
                             onClick={() => handleUnmatchGroup(matchGroup.matchGroupId)}
@@ -1990,7 +1799,7 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
                 <Input
                   id="edit-description"
                   value={editingItem.description}
-                  onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingItem({ ...editingItem, description: e.target.value })}
                 />
               </div>
               <div>
@@ -2019,236 +1828,57 @@ export function APRecReview({ companyId, companyName, period, onBack }: APRecRev
       </Dialog>
 
       {/* Follow-Up Dialog */}
-      <Dialog open={showFollowUpDialog} onOpenChange={setShowFollowUpDialog}>
-        <DialogContent className="max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <MessageSquare className="size-5 text-purple-600" />
-              Request Information
-            </DialogTitle>
-            <DialogDescription className="text-gray-600">
-              Add a note about what information is needed for this transaction.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label className="text-sm font-medium text-gray-700 mb-2">What information do you need?</Label>
-              <Textarea 
-                value={followUpNote}
-                onChange={(e) => setFollowUpNote(e.target.value)}
-                placeholder="e.g., Need vendor invoice from supplier, Waiting for client approval, Need clarification on purpose..."
-                rows={5}
-                className="mt-2 resize-none"
-              />
-            </div>
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="flex items-start gap-2 mb-3">
-                <ThumbsUp className="size-4 text-purple-600 mt-0.5" />
-                <span className="text-sm font-medium text-purple-900">Common follow-ups:</span>
-              </div>
-              <ul className="space-y-2 ml-6">
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Vendor invoice required
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Client inquiry needed
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  AP statement clarification
-                </li>
-                <li className="flex items-center gap-2 text-sm text-purple-800">
-                  <div className="size-1.5 rounded-full bg-purple-400"></div>
-                  Team member approval required
-                </li>
-              </ul>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => setShowFollowUpDialog(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleRequestInformation} className="bg-purple-600 hover:bg-purple-700">
-              Flag for Follow-Up
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Follow Up Dialog */}
+      <ReconciliationFollowUpDialog
+        open={showFollowUpDialog}
+        onOpenChange={setShowFollowUpDialog}
+        note={followUpNote}
+        onNoteChange={setFollowUpNote}
+        onConfirm={handleRequestInformation}
+        isLoading={false}
+      />
 
       {/* Match Dialog */}
-      <Dialog open={showMatchDialog} onOpenChange={setShowMatchDialog}>
-        <DialogContent className="max-w-[90vw] w-[1600px] max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Match Transactions - Multi-Select</DialogTitle>
-            <DialogDescription>
-              Select one or more vendor transactions and one or more AP entries to match them together. Supports many-to-many matching.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-6">
-              {/* Vendor Transactions Column */}
-              <div className="space-y-3">
-                <div className="sticky top-0 bg-white pb-3 border-b border-gray-200 z-10">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                      <FileSpreadsheet className="size-4 text-red-600" />
-                      Vendor Transactions
-                    </h3>
-                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                      {selectedVendorItems.length} selected
-                    </Badge>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded p-3">
-                    <div className="text-sm font-medium text-blue-900">Selected Total:</div>
-                    <div className={`text-2xl font-medium ${getTotalAmount(selectedVendorItems) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      €{formatCurrency(Math.abs(getTotalAmount(selectedVendorItems)))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {unmatchedVendorItems && unmatchedVendorItems.map((item, idx) => {
-                    const isSelected = selectedVendorItems.some(i => i.transaction.id === item.transaction.id);
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                          isSelected 
-                            ? 'bg-blue-100 border-blue-500 shadow-md' 
-                            : 'bg-red-50 border-red-200 hover:border-red-400'
-                        }`}
-                        onClick={() => toggleVendorSelection(item)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox 
-                            checked={isSelected}
-                            onCheckedChange={() => toggleVendorSelection(item)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-gray-900">{item.transaction.description}</span>
-                              <div className={`text-lg font-medium ${item.transaction.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                €{formatCurrency(Math.abs(item.transaction.amount))}
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-600">{item.transaction.date}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* AP Entries Column */}
-              <div className="space-y-3">
-                <div className="sticky top-0 bg-white pb-3 border-b border-gray-200 z-10">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                      <BookOpen className="size-4 text-amber-600" />
-                      AP Entries
-                    </h3>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                      {selectedAPItems.length} selected
-                    </Badge>
-                  </div>
-                  <div className="bg-purple-50 border border-purple-200 rounded p-3">
-                    <div className="text-sm font-medium text-purple-900">Selected Total:</div>
-                    <div className={`text-2xl font-medium ${getTotalAmount(selectedAPItems) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      €{formatCurrency(Math.abs(getTotalAmount(selectedAPItems)))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {unmatchedAPItems && unmatchedAPItems.map((item, idx) => {
-                    const isSelected = selectedAPItems.some(i => i.entry.id === item.entry.id);
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                          isSelected 
-                            ? 'bg-purple-100 border-purple-500 shadow-md' 
-                            : 'bg-amber-50 border-amber-200 hover:border-amber-400'
-                        }`}
-                        onClick={() => toggleAPSelection(item)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox 
-                            checked={isSelected}
-                            onCheckedChange={() => toggleAPSelection(item)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-gray-900">{item.entry.description}</span>
-                              <div className={`text-lg font-medium ${item.entry.amount >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                €{formatCurrency(Math.abs(item.entry.amount))}
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-600">{item.entry.date}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Match Validation Banner */}
-          {(selectedVendorItems.length > 0 || selectedAPItems.length > 0) && (
-            <div className="border-t border-gray-200 pt-4">
-              <div className={`p-4 rounded-lg border-2 ${
-                Math.abs(getTotalAmount(selectedVendorItems) - getTotalAmount(selectedAPItems)) < 0.01
-                  ? 'bg-green-50 border-green-500'
-                  : 'bg-yellow-50 border-yellow-500'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900 mb-1">
-                      {Math.abs(getTotalAmount(selectedVendorItems) - getTotalAmount(selectedAPItems)) < 0.01 ? (
-                        <span className="text-green-700 flex items-center gap-2">
-                          <CheckCircle2 className="size-5" />
-                          Amounts Match - Ready to Reconcile
-                        </span>
-                      ) : (
-                        <span className="text-yellow-700 flex items-center gap-2">
-                          <AlertCircle className="size-5" />
-                          Amount Difference
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      Vendor: €{formatCurrency(Math.abs(getTotalAmount(selectedVendorItems)))} | 
-                      AP: €{formatCurrency(Math.abs(getTotalAmount(selectedAPItems)))} | 
-                      Diff: €{formatCurrency(Math.abs(getTotalAmount(selectedVendorItems) - getTotalAmount(selectedAPItems)))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setShowMatchDialog(false)}>
-              Cancel
-            </Button>
-            <Button 
-              type="button"
-              onClick={() => handleMatchItems()}
-              disabled={isMonthLocked || selectedVendorItems.length === 0 || selectedAPItems.length === 0}
-            >
-              Match Selected Items
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ReconciliationMatchDialog
+        open={showMatchDialog}
+        onOpenChange={setShowMatchDialog}
+        title="Match Transactions - Multi-Select"
+        leftItems={unmatchedVendorItems.map(i => ({
+          id: i.transaction.id,
+          date: i.transaction.date,
+          description: i.transaction.description,
+          amount: i.transaction.amount,
+          originalItem: i
+        }))}
+        leftTitle="Vendor Transactions"
+        onSelectLeft={(mItem) => toggleVendorSelection(mItem.originalItem as UnmatchedVendor)}
+        selectedLeftItems={selectedVendorItems.map(i => ({
+          id: i.transaction.id,
+          date: i.transaction.date,
+          description: i.transaction.description,
+          amount: i.transaction.amount,
+          originalItem: i
+        }))}
+        rightItems={unmatchedAPItems.map(i => ({
+          id: i.entry.id,
+          date: i.entry.date,
+          description: i.entry.description,
+          amount: i.entry.amount,
+          originalItem: i
+        }))}
+        rightTitle="AP Entries"
+        onSelectRight={(mItem) => toggleAPSelection(mItem.originalItem as UnmatchedAP)}
+        selectedRightItems={selectedAPItems.map(i => ({
+          id: i.entry.id,
+          date: i.entry.date,
+          description: i.entry.description,
+          amount: i.entry.amount,
+          originalItem: i
+        }))}
+        onMatch={() => handleMatchItems()}
+        isMatching={false}
+        currency={(selectedVendorItems[0]?.transaction as any)?.currency || 'USD'}
+      />
     </div>
   );
 }

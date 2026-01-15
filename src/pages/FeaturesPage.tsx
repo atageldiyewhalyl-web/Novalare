@@ -1,4 +1,4 @@
-import { Header } from "@/components/Header";
+import { NewHeader } from "@/components/NewHeader";
 import { Footer } from "@/components/Footer";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
@@ -96,7 +96,7 @@ export function FeaturesPage() {
         keywords="invoice extraction software, bank reconciliation automation, AP reconciliation, month-end close automation, QuickBooks integration, Xero integration, DATEV software"
       />
       
-      <Header />
+      <NewHeader />
 
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 px-4 sm:px-6 overflow-hidden">

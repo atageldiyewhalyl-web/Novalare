@@ -305,7 +305,7 @@ export function TrialBalanceReview({ companyId, companyName, period, onBack }: T
         <Card>
           <CardContent className="py-12">
             <div className="text-center">
-              <Loader2 className="size-12 text-purple-600 mx-auto mb-4 animate-spin" />
+              <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
               <p className="text-gray-600">Loading trial balance...</p>
             </div>
           </CardContent>
@@ -323,7 +323,7 @@ export function TrialBalanceReview({ companyId, companyName, period, onBack }: T
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-purple-400 transition-colors">
               {isUploading ? (
                 <div>
-                  <Loader2 className="size-12 text-purple-600 mx-auto mb-4 animate-spin" />
+                  <div className="w-12 h-12 border-4 border-gray-200 border-t-[#65D3FD] rounded-full animate-spin mx-auto mb-4"></div>
                   <p className="text-gray-600">Uploading and analyzing trial balance...</p>
                 </div>
               ) : (

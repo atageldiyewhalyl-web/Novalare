@@ -2,10 +2,13 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useParams, useNavigate } from "react-router-dom";
 import { blogPosts } from "@/utils/blog-data";
 import { ArrowLeft, Calendar, Clock, User, ArrowRight, Share2, Bookmark } from "lucide-react";
+import { Twitter, Linkedin, Facebook } from "lucide-react";
 import { toast } from "sonner@2.0.3";
+import ReactMarkdown from "react-markdown";
 
 export function BlogPostPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -45,6 +48,42 @@ export function BlogPostPage() {
         keywords={post.tags.join(', ')}
         ogImage={post.coverImage}
         ogUrl={shareUrl}
+        canonicalUrl={shareUrl}
+      />
+      
+      {/* Add Article Structured Data for SEO */}
+      <script 
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": post.title,
+            "image": post.coverImage,
+            "datePublished": post.publishedAt,
+            "dateModified": post.publishedAt,
+            "author": {
+              "@type": "Person",
+              "name": post.author.name,
+              "jobTitle": post.author.role
+            },
+            "publisher": {
+              "@type": "Organization",
+              "name": "Novalare",
+              "logo": {
+                "@type": "ImageObject",
+                "url": "https://www.novalare.com/logo.png"
+              }
+            },
+            "description": post.excerpt,
+            "mainEntityOfPage": {
+              "@type": "WebPage",
+              "@id": shareUrl
+            },
+            "keywords": post.tags.join(', '),
+            "articleSection": post.category
+          })
+        }}
       />
       
       <Header />

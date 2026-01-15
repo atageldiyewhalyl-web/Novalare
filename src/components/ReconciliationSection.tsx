@@ -123,20 +123,20 @@ export function ReconciliationSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative min-h-screen bg-black flex flex-col items-center justify-center px-4 md:px-6 py-16 md:py-20"
+      className="relative bg-black flex flex-col items-center justify-center px-4 md:px-6 py-16 md:py-20 -mt-32"
     >
       <div className="relative z-10 max-w-7xl mx-auto w-full">
         {/* Main headline */}
         <div className="text-center mb-8 md:mb-12 lg:mb-20">
-          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-bold text-white mb-4 md:mb-4 lg:mb-6 tracking-tight leading-tight sm:leading-tight md:leading-[1.1]">
+          <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-bold text-white mb-4 md:mb-6 lg:mb-8 tracking-tight leading-tight sm:leading-tight md:leading-[1.1]">
             Reconciliation
             <br />
             in seconds
           </h1>
-          <p className="text-sm sm:text-base md:text-xl lg:text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed px-4 md:px-0">
-            Automatically match internal ledgers and bank statements instantly.
+          <p className="text-base sm:text-lg md:text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed px-4 md:px-0 mb-2">
+            No more staring at screen trying to match transactions—Novalare does it for you!
           </p>
-          <p className="text-sm sm:text-base md:text-xl lg:text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed px-4 md:px-0 mt-2">
+          <p className="text-sm sm:text-base md:text-lg text-gray-400 max-w-2xl mx-auto leading-relaxed px-4 md:px-0">
             Exact matches, one-to-many, FX transactions, and time differences—all handled.
           </p>
         </div>

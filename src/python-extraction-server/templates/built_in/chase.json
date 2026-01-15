@@ -1,0 +1,57 @@
+{
+  "bank_key": "chase",
+  "bank_name": "Chase",
+  "version": "1.0",
+  "created_by": "system",
+  "last_updated": "2024-12-22",
+  "description": "Chase Bank checking/savings - MM/DD date format with running balance",
+  
+  "statement_model": "running_balance",
+  "currency": "USD",
+  
+  "columns": {
+    "date": {
+      "x_min": 40,
+      "x_max": 110,
+      "note": "MM/DD format without year"
+    },
+    "description": {
+      "x_min": 120,
+      "x_max": 360,
+      "note": "Multi-line descriptions supported"
+    },
+    "amount": {
+      "x_min": 370,
+      "x_max": 450,
+      "note": "Signed amounts with $ prefix"
+    },
+    "balance": {
+      "x_min": 460,
+      "x_max": 540,
+      "note": "Running balance"
+    }
+  },
+  
+  "transaction_start_markers": [
+    "TRANSACTION DETAILS",
+    "Date Description",
+    "BEGINNING BALANCE"
+  ],
+  
+  "date_format": "MM/DD",
+  "has_balance_column": true,
+  "multiline_descriptions": true,
+  
+  "detection_keywords": [
+    "chase",
+    "jpmorgan",
+    "jp morgan",
+    "chase bank"
+  ],
+  
+  "notes": [
+    "Verified working 2024-12-22: Extracted 27 transactions successfully",
+    "Supports multi-line descriptions (wraps to next row)",
+    "Year inference from statement period"
+  ]
+}

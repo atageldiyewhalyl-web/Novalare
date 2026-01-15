@@ -1,36 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { 
-  CheckCircle2, 
-  Circle, 
-  Building2,
+import {
   ChevronDown,
   Calendar,
-  ChevronRight,
-  AlertCircle,
   Loader2,
-  Upload,
-  Download,
-  FileSpreadsheet,
-  AlertTriangle,
-  XCircle,
+  CheckCircle2,
+  Circle,
   Lock
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { companiesApi, Company } from '@/utils/api-client';
+import { Company } from '@/utils/api-client';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { projectId, publicAnonKey } from '@/utils/supabase/info';
 import { BankRecReview } from './BankRecReview';
 import { APRecReview } from './APRecReview';
 import { CCRecReview } from './CCRecReview';
-import { TrialBalanceReview } from './TrialBalanceReview';
+import { ARRecReview } from './ARRecReview';
+
 import { toast } from 'sonner';
+import { ChecklistItem, SectionCard, StatusBadge, RequirementGrid } from './shared';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface MonthEndCloseProps {
   companyId?: string;
@@ -45,10 +40,14 @@ interface ReconciliationResult {
     unmatched_bank_count: number;
     unmatched_ledger_count: number;
   };
+  locked: boolean;
+  lockedAt?: string;
 }
 
 export function MonthEndClose({ companyId: initialCompanyId, companyName: initialCompanyName }: MonthEndCloseProps) {
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [initialAccountId, setInitialAccountId] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [reconciliationResult, setReconciliationResult] = useState<ReconciliationResult | null>(null);
@@ -56,7 +55,8 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
   const [showBankRecReview, setShowBankRecReview] = useState(false);
   const [showAPRecReview, setShowAPRecReview] = useState(false);
   const [showCCRecReview, setShowCCRecReview] = useState(false);
-  const [showTrialBalanceReview, setShowTrialBalanceReview] = useState(false);
+  const [showARRecReview, setShowARRecReview] = useState(false);
+
 
   // AP Reconciliation state
   const [apReconciliationResult, setAPReconciliationResult] = useState<any>(null);
@@ -66,13 +66,11 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
   const [ccReconciliationResult, setCCReconciliationResult] = useState<any>(null);
   const [isLoadingCCReconciliation, setIsLoadingCCReconciliation] = useState(false);
 
-  // Trial Balance state
-  const [trialBalanceResult, setTrialBalanceResult] = useState<any>(null);
-  const [isLoadingTrialBalance, setIsLoadingTrialBalance] = useState(false);
-  
-  // Trial Balance upload state
-  const [isUploadingTrialBalance, setIsUploadingTrialBalance] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // AR Reconciliation state
+  const [arReconciliationResult, setARReconciliationResult] = useState<any>(null);
+  const [isLoadingARReconciliation, setIsLoadingARReconciliation] = useState(false);
+
+
 
   // Month close/lock state
   const [isMonthLocked, setIsMonthLocked] = useState(false);
@@ -80,22 +78,43 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
   const [isClosingMonth, setIsClosingMonth] = useState(false);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
 
-  // Load companies list
+
+
+  // Initialize company from props
   useEffect(() => {
-    loadCompanies();
-    
-    // Set default period to current month
-    const currentDate = new Date();
-    const year = currentDate.getFullYear();
-    const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
-    setSelectedPeriod(`${year}-${month}`);
-  }, []);
-  
+    if (initialCompanyId && initialCompanyName) {
+      setSelectedCompany({
+        id: initialCompanyId,
+        name: initialCompanyName,
+        industry: '',
+        status: 'active',
+        created_at: new Date().toISOString()
+      });
+    }
+
+    // Set default period to current month ONLY if not provided in URL
+    const params = new URLSearchParams(window.location.search);
+    const periodParam = params.get('period');
+
+    console.log('🔍 MonthEndClose: Init Effect', { periodParam, currentSelectedPeriod: selectedPeriod });
+
+    if (!periodParam) {
+      const currentDate = new Date();
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+      const defaultPeriod = `${year}-${month}`;
+      console.log('📅 MonthEndClose: Setting default period', defaultPeriod);
+      setSelectedPeriod(defaultPeriod);
+    } else {
+      console.log('📅 MonthEndClose: Skipping default set, period param exists', periodParam);
+    }
+  }, [initialCompanyId, initialCompanyName]);
+
   // Generate period options (current and previous 12 months)
   const generatePeriodOptions = () => {
     const options: { value: string; label: string }[] = [];
     const currentDate = new Date();
-    
+
     for (let i = 0; i < 12; i++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
       const year = date.getFullYear();
@@ -104,11 +123,11 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
       const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       options.push({ value, label });
     }
-    
+
     return options;
   };
 
-  const periods = generatePeriodOptions();
+  const periods = useMemo(() => generatePeriodOptions(), []);
 
   // Load reconciliation data when company or period changes
   useEffect(() => {
@@ -117,35 +136,88 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
       loadReconciliationData();
       loadAPReconciliationData();
       loadCCReconciliationData();
-      loadTrialBalanceData();
+      loadARReconciliationData();
+
     }
   }, [selectedCompany, selectedPeriod]);
 
-  const loadCompanies = async () => {
-    try {
-      const data = await companiesApi.getAll();
-      setCompanies(data || []);
-      
-      if (initialCompanyId) {
-        const company = data.find((c: Company) => c.id === initialCompanyId);
-        if (company) {
-          setSelectedCompany(company);
+  // Refresh bank rec status when user returns to page (e.g., after locking from Bank Rec page)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && selectedCompany && selectedPeriod) {
+        // Check if a bank rec was recently locked
+        const notificationKey = `month-end-notification-${selectedCompany.id}`;
+        const wasLocked = localStorage.getItem(notificationKey);
+
+        if (wasLocked) {
+          console.log('🔄 Detected bank rec lock notification - refreshing status...');
+          localStorage.removeItem(notificationKey); // Clear the flag
+          loadReconciliationData(); // Refresh the status
         }
-      } else if (data.length > 0) {
-        setSelectedCompany(data[0]);
       }
-    } catch (error) {
-      console.error('Failed to load companies:', error);
+    };
+
+    // Listen for visibility changes (when user switches back to this tab)
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also check immediately on mount
+    if (selectedCompany && selectedPeriod) {
+      const notificationKey = `month-end-notification-${selectedCompany.id}`;
+      const wasLocked = localStorage.getItem(notificationKey);
+
+      if (wasLocked) {
+        console.log('🔄 Detected bank rec lock notification on mount - refreshing status...');
+        localStorage.removeItem(notificationKey);
+        loadReconciliationData();
+      }
     }
-  };
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [selectedCompany, selectedPeriod]);
+
+  // Handle URL query parameters for direct navigation
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const accountId = searchParams.get('accountId');
+    const periodParam = searchParams.get('period');
+
+    // Debug log to confirm this effect is running
+    console.log('🔍 MonthEndClose: Checking params', { tab, accountId, periodParam });
+
+    // Set period if provided in URL
+    if (periodParam && periodParam !== selectedPeriod) {
+      console.log('📅 MonthEndClose: Setting period from URL', periodParam);
+      setSelectedPeriod(periodParam);
+    }
+
+    if (tab === 'bank-rec-review') {
+      console.log('✅ MonthEndClose: Switch TRIGGERED', { accountId });
+      if (accountId) {
+        setInitialAccountId(accountId);
+      }
+      setShowBankRecReview(true);
+    } else if (tab === 'ap-rec-review') {
+      console.log('✅ MonthEndClose: AP Review Switch TRIGGERED');
+      setShowAPRecReview(true);
+    } else if (tab === 'ar-rec-review') {
+      setShowARRecReview(true);
+    } else if (tab === 'cc-rec-review') {
+      console.log('✅ MonthEndClose: CC Review Switch TRIGGERED');
+      setShowCCRecReview(true);
+    }
+  }, [searchParams]);
 
   const loadReconciliationData = async () => {
     if (!selectedCompany || !selectedPeriod) return;
 
     setIsLoadingReconciliation(true);
     try {
+      // ⚡ OPTIMIZED: Use lightweight status-summary endpoint (80% faster)
+      // This skips COA fetch and full reconciliation data loading
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/reconciliation?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/bank-rec/status-summary?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -153,21 +225,45 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
         }
       );
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Month-End Close - Reconciliation data loaded:', data);
-        setReconciliationResult(data);
-      } else if (response.status === 404) {
-        // 404 is expected when no reconciliation has been run yet - not an error
-        console.log('Month-End Close - No bank reconciliation found for this period (not yet run)');
+      if (!response.ok) {
+        console.log('Month-End Close - Failed to fetch bank rec status summary');
         setReconciliationResult(null);
-      } else {
-        const errorText = await response.text();
-        console.error('Month-End Close - Failed to load reconciliation:', response.status, errorText);
-        setReconciliationResult(null);
+        return;
       }
+
+      const statusData = await response.json();
+      console.log('Month-End Close - Bank rec status loaded (fast):', statusData);
+      if (statusData.accounts) {
+        console.log('Month-End Close - Bank accounts found:', statusData.accounts.map((a: any) => a.name).join(', '));
+      }
+
+      // If no reconciliation exists, set null
+      if (!statusData.exists) {
+        setReconciliationResult(null);
+        return;
+      }
+
+      // Convert status summary to reconciliation result format
+      // Note: We don't load the full unmatched arrays for checklist status
+      // Those will be loaded only when user clicks "Review" button
+      const result = {
+        unmatched_bank: [], // Empty arrays - not needed for status display
+        unmatched_ledger: [],
+        locked: statusData.locked,
+        lockedAt: statusData.lockedAt,
+        summary: {
+          matched_count: statusData.matchedCount || 0,
+          unmatched_bank_count: statusData.unmatchedBankCount || 0,
+          unmatched_ledger_count: statusData.unmatchedLedgerCount || 0,
+        },
+        accountCount: statusData.accountCount,
+        lockedCount: statusData.lockedCount || 0
+      };
+
+      setReconciliationResult(result);
+
     } catch (error) {
-      console.error('Month-End Close - Failed to load reconciliation data:', error);
+      console.error('Month-End Close - Failed to load bank rec status:', error);
       setReconciliationResult(null);
     } finally {
       setIsLoadingReconciliation(false);
@@ -179,8 +275,9 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
 
     setIsLoadingAPReconciliation(true);
     try {
+      // ⚡ OPTIMIZED: Use lightweight status-summary endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/reconciliation?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ap-rec/status-summary?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -189,20 +286,20 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
       );
 
       if (response.ok) {
-        const data = await response.json();
-        console.log('Month-End Close - AP Reconciliation data loaded:', data);
-        setAPReconciliationResult(data);
-      } else if (response.status === 404) {
-        // 404 is expected when no reconciliation has been run yet - not an error
-        console.log('Month-End Close - No AP reconciliation found for this period (not yet run)');
-        setAPReconciliationResult(null);
+        const statusData = await response.json();
+        console.log('Month-End Close - AP status loaded (fast):', statusData);
+
+        if (!statusData.exists && statusData.accountCount === undefined) {
+          setAPReconciliationResult(null);
+        } else {
+          setAPReconciliationResult(statusData);
+        }
       } else {
-        const errorText = await response.text();
-        console.error('Month-End Close - Failed to load AP reconciliation:', response.status, errorText);
+        console.error('Month-End Close - Failed to load AP status');
         setAPReconciliationResult(null);
       }
     } catch (error) {
-      console.error('Month-End Close - Failed to load AP reconciliation data:', error);
+      console.error('Month-End Close - Failed to load AP status:', error);
       setAPReconciliationResult(null);
     } finally {
       setIsLoadingAPReconciliation(false);
@@ -214,8 +311,9 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
 
     setIsLoadingCCReconciliation(true);
     try {
+      // ⚡ OPTIMIZED: Use lightweight status-summary endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/cc-rec/reconciliation?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/cc-rec/status-summary?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -224,34 +322,34 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
       );
 
       if (response.ok) {
-        const data = await response.json();
-        console.log('Month-End Close - CC Reconciliation data loaded:', data);
-        // Unwrap the reconciliation object from the API response
-        setCCReconciliationResult(data.reconciliation || data);
-      } else if (response.status === 404) {
-        // 404 is expected when no reconciliation has been run yet - not an error
-        console.log('Month-End Close - No CC reconciliation found for this period (not yet run)');
-        setCCReconciliationResult(null);
+        const statusData = await response.json();
+        console.log('Month-End Close - CC status loaded (fast):', statusData);
+
+        if (!statusData.exists && statusData.accountCount === undefined) {
+          setCCReconciliationResult(null);
+        } else {
+          setCCReconciliationResult(statusData);
+        }
       } else {
-        const errorText = await response.text();
-        console.error('Month-End Close - Failed to load CC reconciliation:', response.status, errorText);
+        console.error('Month-End Close - Failed to load CC status');
         setCCReconciliationResult(null);
       }
     } catch (error) {
-      console.error('Month-End Close - Failed to load CC reconciliation data:', error);
+      console.error('Month-End Close - Failed to load CC status:', error);
       setCCReconciliationResult(null);
     } finally {
       setIsLoadingCCReconciliation(false);
     }
   };
 
-  const loadTrialBalanceData = async () => {
+  const loadARReconciliationData = async () => {
     if (!selectedCompany || !selectedPeriod) return;
 
-    setIsLoadingTrialBalance(true);
+    setIsLoadingARReconciliation(true);
     try {
+      // ⚡ OPTIMIZED: Use lightweight status-summary endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/trial-balance/get?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/ar-rec/status-summary?companyId=${selectedCompany.id}&period=${selectedPeriod}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -260,25 +358,27 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
       );
 
       if (response.ok) {
-        const data = await response.json();
-        console.log('Month-End Close - Trial Balance data loaded:', data);
-        setTrialBalanceResult(data);
-      } else if (response.status === 404) {
-        // 404 is expected when no trial balance has been uploaded yet - not an error
-        console.log('Month-End Close - No trial balance found for this period (not yet uploaded)');
-        setTrialBalanceResult(null);
+        const statusData = await response.json();
+        console.log('Month-End Close - AR status loaded (fast):', statusData);
+
+        if (!statusData.exists && statusData.accountCount === undefined) {
+          setARReconciliationResult(null);
+        } else {
+          setARReconciliationResult(statusData);
+        }
       } else {
-        const errorText = await response.text();
-        console.error('Month-End Close - Failed to load trial balance:', response.status, errorText);
-        setTrialBalanceResult(null);
+        console.error('Month-End Close - Failed to load AR status');
+        setARReconciliationResult(null);
       }
     } catch (error) {
-      console.error('Month-End Close - Failed to load trial balance data:', error);
-      setTrialBalanceResult(null);
+      console.error('Month-End Close - Failed to load AR status:', error);
+      setARReconciliationResult(null);
     } finally {
-      setIsLoadingTrialBalance(false);
+      setIsLoadingARReconciliation(false);
     }
   };
+
+
 
   const loadLockStatus = async () => {
     if (!selectedCompany || !selectedPeriod) return;
@@ -325,7 +425,7 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
 
       // Read response as text first, then parse
       const responseText = await response.text();
-      
+
       if (response.ok) {
         try {
           const data = JSON.parse(responseText);
@@ -359,178 +459,285 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
 
   const getStatusBadge = () => {
     if (!reconciliationResult) {
-      return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Not Started</Badge>;
+      return <StatusBadge status="not-started" />;
     }
-    
-    const hasUnmatched = (reconciliationResult.unmatched_bank?.length || 0) > 0 || 
-                        (reconciliationResult.unmatched_ledger?.length || 0) > 0;
-    
+
+    const hasUnmatched = (reconciliationResult.unmatched_bank?.length || 0) > 0 ||
+      (reconciliationResult.unmatched_ledger?.length || 0) > 0;
+
     if (hasUnmatched) {
-      return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">In Progress</Badge>;
+      return <StatusBadge status="in-progress" />;
     }
-    
-    return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Ready to Close</Badge>;
+
+    return <StatusBadge status="ready" />;
   };
 
-  const bankRecCompleted = reconciliationResult && 
-    (reconciliationResult.unmatched_bank?.length || 0) === 0 && 
+  const bankRecCompleted = reconciliationResult &&
+    (reconciliationResult.unmatched_bank?.length || 0) === 0 &&
     (reconciliationResult.unmatched_ledger?.length || 0) === 0;
 
   const apRecCompleted = apReconciliationResult &&
-    (apReconciliationResult.unmatchedVendor?.length || 0) === 0 &&
-    (apReconciliationResult.unmatchedAP?.length || 0) === 0;
+    (apReconciliationResult.summary?.unmatched_vendor_count || apReconciliationResult.unmatchedVendor?.length || 0) === 0 &&
+    (apReconciliationResult.summary?.unmatched_ap_count || apReconciliationResult.unmatchedAP?.length || 0) === 0;
 
   const ccRecCompleted = ccReconciliationResult &&
-    (ccReconciliationResult.unmatched_cc?.length || 0) === 0 &&
-    (ccReconciliationResult.unmatched_ledger?.length || 0) === 0;
+    (ccReconciliationResult.summary?.unmatched_cc_count || ccReconciliationResult.unmatched_cc?.length || 0) === 0 &&
+    (ccReconciliationResult.summary?.unmatched_ledger_count || ccReconciliationResult.unmatched_ledger?.length || 0) === 0;
 
-  const trialBalanceCompleted = trialBalanceResult && 
-    trialBalanceResult.isBalanced && 
-    trialBalanceResult.canClose;
+  const arRecCompleted = arReconciliationResult &&
+    (arReconciliationResult.summary?.unmatched_payment_count || arReconciliationResult.unmatched_payments?.length || 0) === 0 &&
+    (arReconciliationResult.summary?.unmatched_invoice_count || arReconciliationResult.unmatched_invoices?.length || 0) === 0;
 
-  // Handle trial balance file upload
-  const handleTrialBalanceFileSelect = () => {
-    fileInputRef.current?.click();
-  };
 
-  const handleTrialBalanceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !selectedCompany || !selectedPeriod) return;
 
-    // Validate file type
-    const validTypes = [
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/csv',
-    ];
+  const isAccountless = (res: any) => res && (res.accountCount === 0 || res.totalAccounts === 0);
 
-    if (!validTypes.includes(file.type) && !file.name.endsWith('.csv') && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      toast.error('Invalid file type. Please upload an Excel (.xlsx, .xls) or CSV file.');
-      return;
+  // Helper to ensure boolean values for completion status
+  const isBankRecComplete = !!bankRecCompleted || isAccountless(reconciliationResult);
+  const isAPRecComplete = !!apRecCompleted || isAccountless(apReconciliationResult);
+  const isCCRecComplete = !!ccRecCompleted || isAccountless(ccReconciliationResult);
+  const isARRecComplete = !!arRecCompleted || isAccountless(arReconciliationResult);
+
+
+  // Helper functions for ChecklistItem status
+  const getBankRecStatus = () => {
+    if (isLoadingReconciliation) return 'loading';
+
+    // No reconciliation exists
+    if (!reconciliationResult) return 'not-started';
+
+    // Check if no accounts exist
+    if (isAccountless(reconciliationResult)) return 'completed';
+
+    // Check if we have multiple accounts with partial locks
+    const lockedCount = (reconciliationResult as any).lockedCount || 0;
+    const totalAccounts = (reconciliationResult as any).totalAccounts || (reconciliationResult as any).accountCount || 0;
+
+    // Reconciliation exists but not all accounts locked
+    if (!reconciliationResult.locked) {
+      // If some accounts are locked, show in-progress
+      if (lockedCount > 0) return 'in-progress';
+      // If no accounts locked, show in-progress (they've started but haven't locked)
+      return 'in-progress';
     }
 
-    setIsUploadingTrialBalance(true);
-    toast.info('Uploading trial balance file...', { duration: 2000 });
+    // Check if there are unmatched items
+    const hasUnmatched =
+      (reconciliationResult.unmatched_bank?.length || 0) > 0 ||
+      (reconciliationResult.unmatched_ledger?.length || 0) > 0;
 
-    try {
-      // Calculate previous period for variance analysis
-      const [year, month] = selectedPeriod.split('-').map(Number);
-      const prevDate = new Date(year, month - 2, 1); // -2 because month is 1-indexed
-      const previousPeriod = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    // Locked but has unmatched items
+    if (hasUnmatched) return 'in-progress';
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('companyId', selectedCompany.id);
-      formData.append('period', selectedPeriod);
-      formData.append('previousPeriod', previousPeriod);
+    // Locked and fully matched
+    return 'completed';
+  };
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-53c2e113/trial-balance/upload`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-          body: formData,
-        }
-      );
+  const getAPRecStatus = () => {
+    if (isLoadingAPReconciliation) return 'loading';
 
-      if (response.ok) {
-        const data = await response.json();
-        setTrialBalanceResult(data);
+    // No reconciliation exists
+    if (!apReconciliationResult) return 'not-started';
 
-        if (data.structuralErrors.length > 0) {
-          toast.error(`Trial Balance uploaded but has ${data.structuralErrors.length} critical error(s).`);
-        } else if (data.analyticalWarnings.length > 0) {
-          toast.warning(`Trial Balance uploaded with ${data.analyticalWarnings.length} warning(s).`);
-        } else {
-          toast.success('✓ Trial Balance uploaded and validated successfully!');
-        }
-      } else {
-        const errorText = await response.text();
-        let errorMessage = 'Failed to upload trial balance';
-        
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.error || errorMessage;
-        } catch (e) {
-          // If response is not JSON, use the text as-is
-          errorMessage = errorText || errorMessage;
-        }
-        
-        toast.error(errorMessage);
-        console.error('Upload error:', errorText);
+    // Check if no accounts exist
+    if (isAccountless(apReconciliationResult)) return 'completed';
+
+    // Reconciliation exists but not locked
+    if (!apReconciliationResult.locked) return 'in-progress';
+
+    // Check if there are unmatched items using summary counts
+    const unmatchedVendor = apReconciliationResult.summary?.unmatched_vendor_count || apReconciliationResult.unmatchedVendor?.length || 0;
+    const unmatchedAP = apReconciliationResult.summary?.unmatched_ap_count || apReconciliationResult.unmatchedAP?.length || 0;
+    const hasUnmatched = unmatchedVendor > 0 || unmatchedAP > 0;
+
+    // Locked but has unmatched items
+    if (hasUnmatched) return 'in-progress';
+
+    // Locked and fully matched
+    return 'completed';
+  };
+
+  const getCCRecStatus = () => {
+    if (isLoadingCCReconciliation) return 'loading';
+
+    // No reconciliation exists
+    if (!ccReconciliationResult) return 'not-started';
+
+    // Check if no accounts exist
+    if (isAccountless(ccReconciliationResult)) return 'completed';
+
+    // Reconciliation exists but not locked
+    if (!ccReconciliationResult.locked) return 'in-progress';
+
+    // Check if there are unmatched items using summary counts
+    const unmatchedCC = ccReconciliationResult.summary?.unmatched_cc_count || ccReconciliationResult.unmatched_cc?.length || 0;
+    const unmatchedLedger = ccReconciliationResult.summary?.unmatched_ledger_count || ccReconciliationResult.unmatched_ledger?.length || 0;
+    const hasUnmatched = unmatchedCC > 0 || unmatchedLedger > 0;
+
+    // Locked but has unmatched items
+    if (hasUnmatched) return 'in-progress';
+
+    // Locked and fully matched
+    return 'completed';
+  };
+
+  const getARRecStatus = () => {
+    if (isLoadingARReconciliation) return 'loading';
+
+    // No reconciliation exists
+    if (!arReconciliationResult) return 'not-started';
+
+    // Check if no accounts exist
+    if (isAccountless(arReconciliationResult)) return 'completed';
+
+    // Reconciliation exists but not locked
+    if (!arReconciliationResult.locked) return 'in-progress';
+
+    // Check if there are unmatched items using summary counts
+    const unmatchedPayments = arReconciliationResult.summary?.unmatched_payment_count || arReconciliationResult.unmatched_payments?.length || 0;
+    const unmatchedInvoices = arReconciliationResult.summary?.unmatched_invoice_count || arReconciliationResult.unmatched_invoices?.length || 0;
+    const hasUnmatched = unmatchedPayments > 0 || unmatchedInvoices > 0;
+
+    // Locked but has unmatched items
+    if (hasUnmatched) return 'in-progress';
+
+    // Locked and fully matched
+    return 'completed';
+  };
+
+  // Get status description for each reconciliation
+  const getBankRecDescription = () => {
+    if (isLoadingReconciliation) return 'Loading reconciliation data...';
+
+    if (!reconciliationResult) {
+      return 'No reconciliation found - please run bank reconciliation first';
+    }
+
+    // Check if we have multiple accounts
+    const lockedCount = (reconciliationResult as any).lockedCount || 0;
+    const totalAccounts = (reconciliationResult as any).totalAccounts || (reconciliationResult as any).accountCount || 0;
+
+    if (isAccountless(reconciliationResult)) {
+      return 'No bank accounts found - not applicable';
+    }
+
+    if (!reconciliationResult.locked) {
+      // Show how many accounts are locked if we have multiple
+      if (totalAccounts > 1) {
+        return `${lockedCount} of ${totalAccounts} accounts locked - please lock remaining accounts`;
       }
-    } catch (error) {
-      console.error('Error uploading trial balance:', error);
-      toast.error('Failed to upload trial balance. Please try again.');
-    } finally {
-      setIsUploadingTrialBalance(false);
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      return 'Reconciliation not locked - please save and lock in bank reconciliation';
     }
+
+    // Use summary counts for performance (arrays are not loaded in status check)
+    const unmatchedBank = reconciliationResult.summary?.unmatched_bank_count || 0;
+    const unmatchedLedger = reconciliationResult.summary?.unmatched_ledger_count || 0;
+
+    if (unmatchedBank > 0 || unmatchedLedger > 0) {
+      return `${unmatchedBank} unmatched bank, ${unmatchedLedger} unmatched ledger - review required`;
+    }
+
+    return 'Reconciliation complete - all items matched';
   };
 
-  const downloadTrialBalanceTemplate = async () => {
-    try {
-      const XLSX = await import('xlsx');
-      const wb = XLSX.utils.book_new();
+  const getAPRecDescription = () => {
+    if (isLoadingAPReconciliation) return 'Loading AP reconciliation data...';
 
-      // Create sample template
-      const templateData = [
-        ['Account Name', 'Account Code', 'Debit', 'Credit'],
-        ['Cash and Cash Equivalents', '1000', 50000, 0],
-        ['Accounts Receivable', '1100', 25000, 0],
-        ['Inventory', '1200', 15000, 0],
-        ['Accounts Payable', '2000', 0, 18000],
-        ['Credit Card Payable', '2100', 0, 3500],
-        ['Revenue', '4000', 0, 120000],
-        ['Cost of Goods Sold', '5000', 48000, 0],
-        ['Salaries Expense', '6000', 30000, 0],
-        ['Rent Expense', '6100', 5000, 0],
-        ['Utilities Expense', '6200', 2500, 0],
-        ['', '', '', ''],
-        ['TOTALS', '', '=SUM(C2:C11)', '=SUM(D2:D11)'],
-      ];
-
-      const templateSheet = XLSX.utils.aoa_to_sheet(templateData);
-      templateSheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(wb, templateSheet, 'Trial Balance Template');
-
-      XLSX.writeFile(wb, `TrialBalance_Template.xlsx`);
-      toast.success('Template downloaded successfully!');
-    } catch (error) {
-      console.error('Error downloading template:', error);
-      toast.error('Failed to download template');
+    if (!apReconciliationResult) {
+      return 'No AP reconciliation found - please run AP reconciliation first';
     }
+
+    if (isAccountless(apReconciliationResult)) {
+      return 'No AP accounts found - not applicable';
+    }
+
+    if (!apReconciliationResult.locked) {
+      return 'Reconciliation not locked - please save and lock in AP reconciliation';
+    }
+
+    const unmatchedVendor = apReconciliationResult.summary?.unmatched_vendor_count || apReconciliationResult.unmatchedVendor?.length || 0;
+    const unmatchedAP = apReconciliationResult.summary?.unmatched_ap_count || apReconciliationResult.unmatchedAP?.length || 0;
+
+    if (unmatchedVendor > 0 || unmatchedAP > 0) {
+      return `${unmatchedVendor} unmatched vendor, ${unmatchedAP} unmatched AP - review required`;
+    }
+
+    return 'Reconciliation complete - all items matched';
   };
 
-  // Show Trial Balance Review page if navigated to it
-  if (showTrialBalanceReview && selectedCompany) {
-    return (
-      <TrialBalanceReview
-        companyId={selectedCompany.id}
-        companyName={selectedCompany.name}
-        period={selectedPeriod}
-        onBack={() => {
-          setShowTrialBalanceReview(false);
-          loadTrialBalanceData(); // Reload data when coming back
-        }}
-      />
-    );
-  }
+  const getCCRecDescription = () => {
+    if (isLoadingCCReconciliation) return 'Loading CC reconciliation data...';
+
+    if (!ccReconciliationResult) {
+      return 'No CC reconciliation found - please run credit card reconciliation first';
+    }
+
+    if (isAccountless(ccReconciliationResult)) {
+      return 'No credit card accounts found - not applicable';
+    }
+
+    if (!ccReconciliationResult.locked) {
+      return 'Reconciliation not locked - please save and lock in CC reconciliation';
+    }
+
+    const unmatchedCC = ccReconciliationResult.summary?.unmatched_cc_count || ccReconciliationResult.unmatched_cc?.length || 0;
+    const unmatchedLedger = ccReconciliationResult.summary?.unmatched_ledger_count || ccReconciliationResult.unmatched_ledger?.length || 0;
+
+    if (unmatchedCC > 0 || unmatchedLedger > 0) {
+      return `${unmatchedCC} unmatched CC, ${unmatchedLedger} unmatched ledger - review required`;
+    }
+
+    return 'Reconciliation complete - all items matched';
+  };
+
+  const getARRecDescription = () => {
+    if (isLoadingARReconciliation) return 'Loading AR reconciliation data...';
+
+    if (!arReconciliationResult) {
+      return 'No AR reconciliation found - please run accounts receivable reconciliation first';
+    }
+
+    if (isAccountless(arReconciliationResult)) {
+      return 'No AR accounts found - not applicable';
+    }
+
+    if (!arReconciliationResult.locked) {
+      return 'Reconciliation not locked - please save and lock in AR reconciliation';
+    }
+
+    const unmatchedPayments = arReconciliationResult.summary?.unmatched_payment_count || arReconciliationResult.unmatched_payments?.length || 0;
+    const unmatchedInvoices = arReconciliationResult.summary?.unmatched_invoice_count || arReconciliationResult.unmatched_invoices?.length || 0;
+
+    if (unmatchedPayments > 0 || unmatchedInvoices > 0) {
+      return `${unmatchedPayments} unmatched payments, ${unmatchedInvoices} unmatched invoices - review required`;
+    }
+
+    return 'Reconciliation complete - all items matched';
+  };
+
+  // DEBUG LOGGING
+  // console.log('MonthEndClose RENDER:', { 
+  //   showBankRecReview, 
+  //   hasSelectedCompany: !!selectedCompany, 
+  //   params: searchParams.toString(),
+  //   tab: searchParams.get('tab')
+  // });
 
   // Show Bank Rec Review page if navigated to it
-  if (showBankRecReview && selectedCompany) {
+  if (showBankRecReview) {
+    if (!selectedCompany) {
+      return <div className="p-10">Loading company for review...</div>;
+    }
+
     return (
       <BankRecReview
         companyId={selectedCompany.id}
         companyName={selectedCompany.name}
         period={selectedPeriod}
+        initialAccountId={initialAccountId}
         onBack={() => {
           setShowBankRecReview(false);
+          setInitialAccountId(null); // Clear initial account ID when going back
           loadReconciliationData(); // Reload data when coming back
         }}
       />
@@ -568,603 +775,248 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Locked Banner */}
-      {isMonthLocked && (
-        <div className="bg-gray-900 text-white p-3 rounded-lg border border-gray-800">
-          <div className="flex items-center gap-2">
-            <Lock className="size-4" />
-            <p className="text-sm">
-              Period locked · Closed {lockDetails?.closedAt ? new Date(lockDetails.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-            </p>
-          </div>
-        </div>
-      )}
+  // Show AR Rec Review page if navigated to it
+  if (showARRecReview && selectedCompany) {
+    return (
+      <ARRecReview
+        companyId={selectedCompany.id}
+        companyName={selectedCompany.name}
+        period={selectedPeriod}
+        onBack={() => {
+          setShowARRecReview(false);
+          loadARReconciliationData(); // Reload AR data when coming back
+        }}
+      />
+    );
+  }
 
-      {/* Header with Company & Period Selector */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div>
-            <h1 className="text-3xl text-gray-900">Month-End Close</h1>
-            <p className="text-gray-500 mt-1">AI-powered close preparation & adjusting entries</p>
+  return (
+    <div className="max-w-7xl mx-auto space-y-8 py-8 px-6">
+      {/* Premium Header */}
+      <div className="relative">
+        <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-gray-100 dark:border-white/10">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400" style={{ fontFamily: "'Manrope', sans-serif" }}>
+              <span className="px-2 py-1 rounded-md bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5 text-xs font-medium">Review Hub</span>
+              <span>/</span>
+              <span>{selectedCompany?.name}</span>
+            </div>
+
+            <div>
+              <h1
+                className="text-4xl md:text-5xl font-bold tracking-tight text-gray-900 dark:text-white mb-2"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
+              >
+                {periods.find(p => p.value === selectedPeriod)?.label.split(' ')[0]}
+                <span className="text-gray-400 dark:text-gray-500 font-light ml-2">
+                  {periods.find(p => p.value === selectedPeriod)?.label.split(' ')[1]}
+                </span>
+              </h1>
+              <p
+                className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl"
+                style={{ fontFamily: "'Manrope', sans-serif" }}
+              >
+                Orchestrate your month-end close with AI-powered reconciliation and anomaly detection.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 pt-2">
+              {isMonthLocked && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100 dark:bg-violet-500/10 dark:text-violet-400 dark:border-violet-500/20">
+                  <Lock className="size-3" />
+                  <span className="text-xs font-medium" style={{ fontFamily: "'Manrope', sans-serif" }}>Period Locked</span>
+                </div>
+              )}
+            </div>
           </div>
-          
-          {/* Company Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Building2 className="size-4" />
-                {selectedCompany?.name || 'Select Company'}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[300px]">
-              {companies.map((company) => (
-                <DropdownMenuItem
-                  key={company.id}
-                  onClick={() => setSelectedCompany(company)}
-                  className={selectedCompany?.id === company.id ? 'bg-purple-50' : ''}
+
+          <div className="flex flex-col items-end gap-4 min-w-[280px]">
+            {/* Period Selector - Premium Style */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between bg-white/80 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-900 dark:text-white hover:bg-white dark:hover:bg-white/10 backdrop-blur-md transition-all duration-300"
+                  style={{ fontFamily: "'Outfit', sans-serif" }}
                 >
-                  <div className="flex flex-col">
-                    <span className="text-sm">{company.name}</span>
-                    <span className="text-xs text-gray-500">{company.industry}</span>
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {/* Period Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Calendar className="size-4" />
-                {periods.find(p => p.value === selectedPeriod)?.label}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {periods.map((period) => (
-                <DropdownMenuItem
-                  key={period.value}
-                  onClick={() => setSelectedPeriod(period.value)}
-                  className={selectedPeriod === period.value ? 'bg-purple-50' : ''}
-                >
-                  {period.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
-          {getStatusBadge()}
+                  <span className="flex items-center gap-2">
+                    <Calendar className="size-4 text-sky-500 dark:text-[#65D3FD]" />
+                    {periods.find(p => p.value === selectedPeriod)?.label}
+                  </span>
+                  <ChevronDown className="size-4 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[280px] bg-white dark:bg-[#0a0a0f] border-gray-100 dark:border-white/10 text-gray-900 dark:text-white shadow-xl">
+                {periods.map((period) => (
+                  <DropdownMenuItem
+                    key={period.value}
+                    onClick={() => setSelectedPeriod(period.value)}
+                    className={`focus:bg-gray-50 dark:focus:bg-white/10 cursor-pointer ${selectedPeriod === period.value ? 'bg-sky-50 dark:bg-white/10 text-sky-600 dark:text-[#65D3FD]' : 'text-gray-700 dark:text-gray-300'}`}
+                    style={{ fontFamily: "'Manrope', sans-serif" }}
+                  >
+                    {period.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Overall Progress */}
+            <div className="w-full p-5 rounded-xl bg-white dark:bg-gradient-to-b dark:from-gray-900/60 dark:to-black/60 border border-gray-100 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-md">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" style={{ fontFamily: "'Outfit', sans-serif" }}>Close Progress</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white font-mono">
+                  {isMonthLocked ? '100%' :
+                    isBankRecComplete && isAPRecComplete && isCCRecComplete && isARRecComplete ? '90%' :
+                      '35%'}
+                </span>
+              </div>
+              <div className="h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden border border-gray-50 dark:border-white/5">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-sky-400 dark:from-[#4F5CFE] dark:to-[#65D3FD] rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(56,189,248,0.5)] dark:shadow-[0_0_10px_rgba(101,211,253,0.5)]"
+                  style={{
+                    width: isMonthLocked ? '100%' :
+                      isBankRecComplete && isAPRecComplete && isCCRecComplete && isARRecComplete ? '90%' :
+                        '35%'
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Pre-Close Checklist */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <div className="size-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-sm">
-              1
-            </div>
-            <CardTitle>Pre-Close Checklist</CardTitle>
+      <div className="relative pl-0 md:pl-12 space-y-10">
+        {/* Timeline Line (Desktop Only) */}
+        <div className="absolute left-0 md:left-5 top-4 bottom-4 w-px bg-gradient-to-b from-gray-200 via-gray-200 to-transparent dark:from-white/10 dark:via-white/10 hidden md:block" />
+
+        {/* Pre-Close Checklist */}
+        <SectionCard
+          number={1}
+          title="Consolidate & Reconcile"
+          description="Ensure all transaction sources match your ledger."
+          isActive={true}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ChecklistItem
+              title="Bank Reconciliation"
+              description={getBankRecDescription()}
+              status={getBankRecStatus()}
+              onAction={() => !reconciliationResult ? navigate(`/company/${selectedCompany?.id}/reconciliations/bank`) : setShowBankRecReview(true)}
+              actionLabel={!reconciliationResult ? "Start Reconciling" : undefined}
+            />
+
+            <ChecklistItem
+              title="AP Reconciliation"
+              description={getAPRecDescription()}
+              status={getAPRecStatus()}
+              onAction={() => !apReconciliationResult ? navigate(`/company/${selectedCompany?.id}/reconciliations/ap`) : setShowAPRecReview(true)}
+              actionLabel={!apReconciliationResult ? "Start Reconciling" : undefined}
+            />
+
+            <ChecklistItem
+              title="CC Reconciliation"
+              description={getCCRecDescription()}
+              status={getCCRecStatus()}
+              onAction={() => !ccReconciliationResult ? navigate(`/company/${selectedCompany?.id}/reconciliations/cc`) : setShowCCRecReview(true)}
+              actionLabel={!ccReconciliationResult ? "Start Reconciling" : undefined}
+            />
+
+            <ChecklistItem
+              title="AR Reconciliation"
+              description={getARRecDescription()}
+              status={getARRecStatus()}
+              onAction={() => !arReconciliationResult ? navigate(`/company/${selectedCompany?.id}/reconciliations/ar`) : setShowARRecReview(true)}
+              actionLabel={!arReconciliationResult ? "Start Reconciling" : undefined}
+            />
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {/* Review Bank Rec */}
-          <div className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
-            <div className="flex items-center gap-3">
-              {bankRecCompleted ? (
-                <CheckCircle2 className="size-5 text-green-600" />
-              ) : isLoadingReconciliation ? (
-                <Loader2 className="size-5 text-gray-400 animate-spin" />
-              ) : reconciliationResult ? (
-                <AlertCircle className="size-5 text-yellow-600" />
-              ) : (
-                <Circle className="size-5 text-gray-400" />
-              )}
-              <div>
-                <p className="text-sm text-gray-900">Review Bank Reconciliation</p>
-                <p className="text-xs text-gray-500">
-                  {isLoadingReconciliation ? (
-                    'Loading reconciliation data...'
-                  ) : reconciliationResult ? (
-                    <>
-                      {reconciliationResult.unmatched_bank?.length || 0} unmatched bank, {reconciliationResult.unmatched_ledger?.length || 0} unmatched ledger
-                    </>
-                  ) : (
-                    'No reconciliation found for this period'
-                  )}
-                </p>
-              </div>
-            </div>
-            <Button 
-              size="sm" 
-              variant="ghost"
-              className="gap-1"
-              onClick={() => setShowBankRecReview(true)}
-            >
-              {bankRecCompleted ? 'Review' : 'Start'}
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+        </SectionCard>
 
-          {/* Review AP Rec */}
-          <div className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
-            <div className="flex items-center gap-3">
-              {apRecCompleted ? (
-                <CheckCircle2 className="size-5 text-green-600" />
-              ) : isLoadingAPReconciliation ? (
-                <Loader2 className="size-5 text-gray-400 animate-spin" />
-              ) : apReconciliationResult ? (
-                <AlertCircle className="size-5 text-yellow-600" />
-              ) : (
-                <Circle className="size-5 text-gray-400" />
-              )}
-              <div>
-                <p className="text-sm text-gray-900">Review AP Reconciliation</p>
-                <p className="text-xs text-gray-500">
-                  {isLoadingAPReconciliation ? (
-                    'Loading AP reconciliation data...'
-                  ) : apReconciliationResult ? (
-                    <>
-                      {apReconciliationResult.unmatchedVendor?.length || 0} unmatched vendor, {apReconciliationResult.unmatchedAP?.length || 0} unmatched AP
-                    </>
-                  ) : (
-                    'No AP reconciliation found for this period'
-                  )}
-                </p>
-              </div>
-            </div>
-            <Button 
-              size="sm" 
-              variant="ghost"
-              className="gap-1"
-              onClick={() => setShowAPRecReview(true)}
-            >
-              {apRecCompleted ? 'Review' : 'Start'}
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
 
-          {/* Review CC Rec */}
-          <div className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
-            <div className="flex items-center gap-3">
-              {ccRecCompleted ? (
-                <CheckCircle2 className="size-5 text-green-600" />
-              ) : isLoadingCCReconciliation ? (
-                <Loader2 className="size-5 text-gray-400 animate-spin" />
-              ) : ccReconciliationResult ? (
-                <AlertCircle className="size-5 text-yellow-600" />
-              ) : (
-                <Circle className="size-5 text-gray-400" />
-              )}
-              <div>
-                <p className="text-sm text-gray-900">Review CC Reconciliation</p>
-                <p className="text-xs text-gray-500">
-                  {isLoadingCCReconciliation ? (
-                    'Loading CC reconciliation data...'
-                  ) : ccReconciliationResult ? (
-                    <>
-                      {ccReconciliationResult.unmatched_cc?.length || 0} unmatched CC, {ccReconciliationResult.unmatched_ledger?.length || 0} unmatched ledger
-                    </>
-                  ) : (
-                    'No CC reconciliation found for this period'
-                  )}
-                </p>
-              </div>
-            </div>
-            <Button 
-              size="sm" 
-              variant="ghost"
-              className="gap-1"
-              onClick={() => setShowCCRecReview(true)}
-            >
-              {ccRecCompleted ? 'Review' : 'Start'}
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
-      {/* Trial Balance Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <div className="size-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm">
-              2
-            </div>
-            <CardTitle>Trial Balance Review</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={handleTrialBalanceFileUpload}
-            className="hidden"
-          />
-
-          {isLoadingTrialBalance ? (
-            <div className="text-center py-12">
-              <Loader2 className="size-12 text-blue-600 mx-auto mb-4 animate-spin" />
-              <p className="text-gray-600">Analyzing trial balance with AI...</p>
-              <p className="text-xs text-gray-500 mt-2">Detecting columns and validating balances</p>
-            </div>
-          ) : !trialBalanceResult ? (
-            /* Upload Section */
-            <div>
-              <div className="mb-4">
-                <h3 className="text-gray-900">Upload Trial Balance</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Upload an Excel or CSV file containing your trial balance for {selectedPeriod}
-                </p>
-              </div>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-400 transition-colors">
-                {isUploadingTrialBalance ? (
-                  <div>
-                    <Loader2 className="size-12 text-blue-600 mx-auto mb-4 animate-spin" />
-                    <p className="text-gray-600">Uploading and analyzing trial balance...</p>
-                    <p className="text-xs text-gray-500 mt-2">AI is detecting columns and validating balances</p>
-                  </div>
-                ) : (
-                  <div>
-                    <FileSpreadsheet className="size-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 mb-4">
-                      Click to upload your trial balance or drag and drop
-                    </p>
-                    <div className="flex items-center justify-center gap-3">
-                      <Button onClick={handleTrialBalanceFileSelect} disabled={isUploadingTrialBalance}>
-                        {isUploadingTrialBalance ? (
-                          <>
-                            <Loader2 className="size-4 mr-2 animate-spin" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="size-4 mr-2" />
-                            Choose File
-                          </>
-                        )}
-                      </Button>
-                      <Button variant="outline" onClick={downloadTrialBalanceTemplate}>
-                        <Download className="size-4 mr-2" />
-                        Download Template
-                      </Button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-4">
-                      Supported formats: Excel (.xlsx, .xls) or CSV
-                    </p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      AI will automatically detect your column structure - any format works!
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            /* Results Section */
-            <div className="space-y-6">
-              {/* Summary Status */}
-              <div className="flex items-start justify-between p-4 border rounded-lg bg-gray-50">
-                <div className="flex items-start gap-3 flex-1">
-                  {trialBalanceCompleted ? (
-                    <CheckCircle2 className="size-6 text-green-600 mt-0.5" />
-                  ) : trialBalanceResult && !trialBalanceResult.canClose ? (
-                    <XCircle className="size-6 text-red-600 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="size-6 text-yellow-600 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm">
-                        {trialBalanceResult.isBalanced ? (
-                          <span className="text-green-700">✓ Trial Balance is Balanced</span>
-                        ) : (
-                          <span className="text-red-700">✗ Trial Balance is Unbalanced</span>
-                        )}
-                      </p>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={handleTrialBalanceFileSelect}
-                      >
-                        <Upload className="size-4 mr-2" />
-                        Re-upload
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 mt-3">
-                      <div>
-                        <p className="text-xs text-gray-500">Total Accounts</p>
-                        <p className="text-sm text-gray-900">{trialBalanceResult.summary?.totalAccounts || 0}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Structural Errors</p>
-                        <p className="text-sm text-gray-900">{trialBalanceResult.structuralErrors?.length || 0}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Warnings</p>
-                        <p className="text-sm text-gray-900">{trialBalanceResult.analyticalWarnings?.length || 0}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Financial Summary */}
-              {trialBalanceResult.summary && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                    <p className="text-xs text-blue-600 mb-1">Total Debits</p>
-                    <p className="text-lg text-gray-900">
-                      €{trialBalanceResult.summary.totalDebits?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                    <p className="text-xs text-blue-600 mb-1">Total Credits</p>
-                    <p className="text-lg text-gray-900">
-                      €{trialBalanceResult.summary.totalCredits?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
-                    <p className="text-xs text-purple-600 mb-1">Total Revenue</p>
-                    <p className="text-lg text-gray-900">
-                      €{trialBalanceResult.summary.totalRevenue?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                    <p className="text-xs text-orange-600 mb-1">Total Expenses</p>
-                    <p className="text-lg text-gray-900">
-                      €{trialBalanceResult.summary.totalExpenses?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Balance Difference Alert */}
-              {trialBalanceResult.summary && trialBalanceResult.summary.difference > 0.01 && (
-                <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="size-5 text-red-600 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm text-red-900">Debits and Credits Don't Match</p>
-                      <p className="text-xs text-red-700 mt-1">
-                        Difference: €{trialBalanceResult.summary.difference.toFixed(2)} 
-                        (Debits €{trialBalanceResult.summary.totalDebits.toFixed(2)} - Credits €{trialBalanceResult.summary.totalCredits.toFixed(2)})
-                      </p>
-                      <p className="text-xs text-red-600 mt-2">
-                        ⚠️ You cannot close the month until the trial balance is balanced.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Structural Errors - Expanded View */}
-              {trialBalanceResult.structuralErrors?.length > 0 && (
-                <div className="border border-red-200 rounded-lg overflow-hidden">
-                  <div className="bg-red-50 px-4 py-3 border-b border-red-200">
-                    <div className="flex items-center gap-2">
-                      <XCircle className="size-5 text-red-600" />
-                      <h4 className="text-sm text-red-900">
-                        {trialBalanceResult.structuralErrors.length} Critical Error(s) - Must Fix Before Close
-                      </h4>
-                    </div>
-                  </div>
-                  <div className="divide-y divide-red-100">
-                    {trialBalanceResult.structuralErrors.map((error: any, idx: number) => (
-                      <div key={idx} className="p-4 bg-white">
-                        <div className="flex items-start gap-3">
-                          <div className="size-8 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs flex-shrink-0">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm text-red-900">{error.title}</p>
-                            <p className="text-xs text-red-700 mt-1">{error.message}</p>
-                            {error.recommendation && (
-                              <div className="mt-2 p-2 bg-red-50 rounded text-xs text-red-800">
-                                <span className="font-medium">💡 Recommendation:</span> {error.recommendation}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Analytical Warnings - Expanded View */}
-              {trialBalanceResult.analyticalWarnings?.length > 0 && (
-                <div className="border border-yellow-200 rounded-lg overflow-hidden">
-                  <div className="bg-yellow-50 px-4 py-3 border-b border-yellow-200">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="size-5 text-yellow-600" />
-                      <h4 className="text-sm text-yellow-900">
-                        {trialBalanceResult.analyticalWarnings.length} Warning(s) - Review Recommended
-                      </h4>
-                    </div>
-                  </div>
-                  <div className="divide-y divide-yellow-100 max-h-96 overflow-y-auto">
-                    {trialBalanceResult.analyticalWarnings.map((warning: any, idx: number) => (
-                      <div key={idx} className="p-4 bg-white">
-                        <div className="flex items-start gap-3">
-                          <div className="size-8 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center text-xs flex-shrink-0">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm text-yellow-900">{warning.title}</p>
-                            <p className="text-xs text-yellow-700 mt-1">{warning.message}</p>
-                            {warning.recommendation && (
-                              <div className="mt-2 p-2 bg-yellow-50 rounded text-xs text-yellow-800">
-                                <span className="font-medium">💡 Recommendation:</span> {warning.recommendation}
-                              </div>
-                            )}
-                            {warning.details && (
-                              <details className="mt-2">
-                                <summary className="text-xs text-yellow-600 cursor-pointer hover:text-yellow-700">
-                                  View details
-                                </summary>
-                                <pre className="mt-2 text-xs text-gray-600 bg-gray-50 p-2 rounded overflow-auto">
-                                  {JSON.stringify(warning.details, null, 2)}
-                                </pre>
-                              </details>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Success State - All Clear */}
-              {trialBalanceResult.isBalanced && 
-               trialBalanceResult.structuralErrors?.length === 0 && 
-               trialBalanceResult.analyticalWarnings?.length === 0 && (
-                <div className="border-l-4 border-green-500 bg-green-50 p-4 rounded">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="size-5 text-green-600 mt-0.5" />
-                    <div>
-                      <p className="text-sm text-green-900">Trial Balance Verified ✓</p>
-                      <p className="text-xs text-green-700 mt-1">
-                        All accounts are balanced with no errors or warnings. You're ready to proceed with month-end close!
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Close Month Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <div className="size-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm">
-              3
-            </div>
-            <CardTitle>Close & Lock Period</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        {/* Close Month Section */}
+        <SectionCard
+          number={2}
+          title="Lock Period"
+          description="Finalize the month and prevent further changes."
+          isActive={isBankRecComplete && isAPRecComplete && isCCRecComplete && isARRecComplete}
+        >
           {isMonthLocked ? (
-            /* Month is Locked */
-            <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="size-10 rounded-full bg-gray-900 flex items-center justify-center">
-                  <Lock className="size-5 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-900">Period Locked</p>
-                  <p className="text-xs text-gray-500">
-                    Closed {lockDetails?.closedAt ? new Date(lockDetails.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                  </p>
+            <div className="p-8 rounded-xl bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 flex flex-col items-center text-center">
+              <div className="size-16 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center mb-4">
+                <Lock className="size-8 text-gray-500 dark:text-gray-400" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Period Locked</h3>
+              <p className="text-gray-500 max-w-md mb-6">
+                This period was closed on {lockDetails?.closedAt ? new Date(lockDetails.closedAt).toLocaleDateString() : 'Unknown date'}.
+                All transactions are now read-only.
+              </p>
+              <Button variant="outline" disabled>
+                Contact Admin to Unlock
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <RequirementStatus label="Bank Rec" isMet={isBankRecComplete} />
+                <RequirementStatus label="AP Rec" isMet={isAPRecComplete} />
+                <RequirementStatus label="CC Rec" isMet={isCCRecComplete} />
+                <RequirementStatus label="AR Rec" isMet={isARRecComplete} />
+
+              </div>
+
+              <div className="p-6 rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 text-white shadow-xl dark:from-zinc-900 dark:to-black dark:border dark:border-zinc-800">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 mr-10">
+                  <div>
+                    <h3 className="text-xl font-bold mb-2">Ready to Close?</h3>
+                    <p className="text-gray-300 text-sm">
+                      Closing the period will lock all associated journals and reconciliations.
+                      This action can only be undone by an administrator.
+                    </p>
+                  </div>
+                  <Button
+                    size="lg"
+                    onClick={() => {
+                      setShowCloseConfirmation(true);
+                    }}
+                    disabled={!(isBankRecComplete && isAPRecComplete && isCCRecComplete && isARRecComplete)}
+                    className="bg-white text-black hover:bg-gray-100 whitespace-nowrap min-w-[120px]"
+                  >
+                    {isClosingMonth ? <Loader2 className="size-4 animate-spin" /> : 'Close Period'}
+                  </Button>
                 </div>
               </div>
             </div>
-          ) : (
-            /* Month is Open */
-            <>
-              {/* Requirements Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className={`p-3 rounded-lg border transition-all ${bankRecCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center gap-2">
-                    {bankRecCompleted ? (
-                      <CheckCircle2 className="size-4 text-green-600" />
-                    ) : (
-                      <Circle className="size-4 text-gray-400" />
-                    )}
-                    <span className="text-xs text-gray-700">Bank Reconciliation</span>
-                  </div>
-                </div>
-                <div className={`p-3 rounded-lg border transition-all ${apRecCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center gap-2">
-                    {apRecCompleted ? (
-                      <CheckCircle2 className="size-4 text-green-600" />
-                    ) : (
-                      <Circle className="size-4 text-gray-400" />
-                    )}
-                    <span className="text-xs text-gray-700">AP Reconciliation</span>
-                  </div>
-                </div>
-                <div className={`p-3 rounded-lg border transition-all ${ccRecCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center gap-2">
-                    {ccRecCompleted ? (
-                      <CheckCircle2 className="size-4 text-green-600" />
-                    ) : (
-                      <Circle className="size-4 text-gray-400" />
-                    )}
-                    <span className="text-xs text-gray-700">CC Reconciliation</span>
-                  </div>
-                </div>
-                <div className={`p-3 rounded-lg border transition-all ${trialBalanceCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="flex items-center gap-2">
-                    {trialBalanceCompleted ? (
-                      <CheckCircle2 className="size-4 text-green-600" />
-                    ) : (
-                      <Circle className="size-4 text-gray-400" />
-                    )}
-                    <span className="text-xs text-gray-700">Trial Balance</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Button */}
-              {bankRecCompleted && apRecCompleted && ccRecCompleted && trialBalanceCompleted ? (
-                <Button
-                  size="lg"
-                  onClick={() => setShowCloseConfirmation(true)}
-                  className="w-full bg-gray-900 hover:bg-gray-800 text-white"
-                >
-                  <Lock className="size-4 mr-2" />
-                  Close {periods.find(p => p.value === selectedPeriod)?.label}
-                </Button>
-              ) : (
-                <Button
-                  size="lg"
-                  disabled
-                  className="w-full"
-                >
-                  Complete All Requirements to Close
-                </Button>
-              )}
-
-              {/* Info Text */}
-              <p className="text-xs text-gray-500 text-center">
-                Once closed, this period will be locked and read-only
-              </p>
-            </>
           )}
-        </CardContent>
-      </Card>
+        </SectionCard>
+      </div>
 
       {/* Confirmation Modal */}
       {showCloseConfirmation && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => !isClosingMonth && setShowCloseConfirmation(false)}>
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-6" onClick={(e) => e.stopPropagation()}>
-            <div>
-              <h3 className="text-xl text-gray-900">Close Period?</h3>
-              <p className="text-sm text-gray-600 mt-2">
-                You're about to close {periods.find(p => p.value === selectedPeriod)?.label} for {selectedCompany?.name}.
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !isClosingMonth && setShowCloseConfirmation(false)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-zinc-800 transform transition-all scale-100" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center mb-6">
+              <div className="size-12 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-4">
+                <Lock className="size-6" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Confirm Month Close</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                You are about to close <span className="font-semibold text-gray-900 dark:text-gray-200">{periods.find(p => p.value === selectedPeriod)?.label}</span>.
               </p>
             </div>
 
-            <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-              <p className="text-xs text-gray-700">This will:</p>
-              <ul className="text-xs text-gray-600 space-y-1 ml-4">
-                <li>• Lock all reconciliations (read-only)</li>
-                <li>• Lock trial balance data</li>
-                <li>• Prevent new transactions for this period</li>
-              </ul>
+            <div className="bg-gray-50 dark:bg-zinc-800/50 rounded-xl p-4 mb-6 space-y-3 text-sm">
+              <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
+                <CheckCircle2 className={`size-4 ${isBankRecComplete ? 'text-emerald-500' : 'text-gray-400'}`} />
+                <span>Lock all reconciliations</span>
+              </div>
+
+              <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
+                <CheckCircle2 className="size-4 text-emerald-500" />
+                <span>Prevent new transactions</span>
+              </div>
             </div>
+
+
 
             <div className="flex gap-3">
               <Button
@@ -1178,7 +1030,7 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
               <Button
                 onClick={handleCloseMonth}
                 disabled={isClosingMonth}
-                className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
+                className="flex-1 bg-gray-900 hover:bg-gray-800 text-white dark:bg-white dark:text-black dark:hover:bg-gray-200"
               >
                 {isClosingMonth ? (
                   <>
@@ -1186,15 +1038,29 @@ export function MonthEndClose({ companyId: initialCompanyId, companyName: initia
                     Closing...
                   </>
                 ) : (
-                  <>
-                    Close Period
-                  </>
+                  'Confirm Close'
                 )}
               </Button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Helper component for requirement status
+function RequirementStatus({ label, isMet }: { label: string; isMet: boolean }) {
+  return (
+    <div className={`
+         flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-300
+         ${isMet
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+        : 'bg-white/50 border-gray-100 text-gray-400 dark:bg-white/5 dark:border-white/5 dark:text-gray-500 opacity-60'
+      }
+      `}>
+      {isMet ? <CheckCircle2 className="size-5 mb-1" /> : <Circle className="size-5 mb-1" />}
+      <span className="text-xs font-medium" style={{ fontFamily: "'Manrope', sans-serif" }}>{label}</span>
     </div>
   );
 }

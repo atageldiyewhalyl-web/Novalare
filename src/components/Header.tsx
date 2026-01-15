@@ -150,7 +150,6 @@ export function Header() {
         <motion.nav
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
           className="hidden md:flex items-center gap-8 lg:gap-10"
         >
           <button
@@ -174,17 +173,6 @@ export function Header() {
             }}
           >
             Pricing
-          </button>
-          <button
-            onClick={() => handleNavClick('#demos')}
-            className="text-white/70 hover:text-white transition-colors duration-300"
-            style={{
-              fontSize: 'clamp(14px, 1.5vw, 16px)',
-              fontWeight: '500',
-              fontFamily: "'Manrope', sans-serif",
-            }}
-          >
-            Demos
           </button>
           
           {/* Dashboard Button - Only visible when logged in */}
@@ -231,18 +219,23 @@ export function Header() {
                 </button>
               </motion.div>
 
-              {/* Book Consultation Button */}
+              {/* Sign Up Button - Desktop */}
               <motion.div
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
+                transition={{ duration: 0.6, delay: 0.25 }}
+                className="hidden md:block"
               >
                 <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="group inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
+                  onClick={() => navigate('/signup')}
+                  className="group inline-flex items-center gap-2 px-5 py-2.5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
                   style={{
                     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                     boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
+                    fontSize: 'clamp(13px, 1.5vw, 16px)',
+                    fontWeight: '700',
+                    fontFamily: "'Outfit', sans-serif",
+                    letterSpacing: '-0.01em',
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.boxShadow = '0 8px 24px rgba(102, 126, 234, 0.6)';
@@ -251,18 +244,8 @@ export function Header() {
                     e.currentTarget.style.boxShadow = '0 4px 16px rgba(102, 126, 234, 0.4)';
                   }}
                 >
-                  <span
-                    className="text-white whitespace-nowrap"
-                    style={{
-                      fontSize: 'clamp(13px, 1.5vw, 16px)',
-                      fontWeight: '700',
-                      fontFamily: "'Outfit', sans-serif",
-                      letterSpacing: '-0.01em',
-                    }}
-                  >
-                    Book Consultation
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-white transition-transform duration-300 group-hover:translate-x-0.5 hidden sm:block" strokeWidth={2.5} />
+                  <span className="text-white whitespace-nowrap">Sign Up</span>
+                  <ArrowRight className="w-4 h-4 text-white transition-transform duration-300 group-hover:translate-x-0.5" strokeWidth={2.5} />
                 </button>
               </motion.div>
             </>
@@ -420,17 +403,6 @@ export function Header() {
           >
             Pricing
           </button>
-          <button
-            onClick={() => handleNavClick('#demos')}
-            className="text-gray-400 hover:text-white transition-colors duration-300 w-full text-center py-3"
-            style={{
-              fontSize: '20px',
-              fontWeight: '500',
-              fontFamily: "'Outfit', sans-serif",
-            }}
-          >
-            Demos
-          </button>
           
           {/* Dashboard - Highlighted in gradient text */}
           {user && (
@@ -456,20 +428,41 @@ export function Header() {
           
           {/* Login Link - if not logged in */}
           {!user && (
-            <button
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                navigate('/login');
-              }}
-              className="text-gray-400 hover:text-white transition-colors duration-300 w-full text-center py-3"
-              style={{
-                fontSize: '18px',
-                fontWeight: '500',
-                fontFamily: "'Outfit', sans-serif",
-              }}
-            >
-              Log In
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  navigate('/login');
+                }}
+                className="text-gray-400 hover:text-white transition-colors duration-300 w-full text-center py-3"
+                style={{
+                  fontSize: '18px',
+                  fontWeight: '500',
+                  fontFamily: "'Outfit', sans-serif",
+                }}
+              >
+                Log In
+              </button>
+              
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  navigate('/signup');
+                }}
+                className="w-full text-center py-3 transition-colors duration-300"
+                style={{
+                  fontSize: '20px',
+                  fontWeight: '700',
+                  fontFamily: "'Outfit', sans-serif",
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}
+              >
+                Sign Up
+              </button>
+            </>
           )}
         </motion.nav>
 

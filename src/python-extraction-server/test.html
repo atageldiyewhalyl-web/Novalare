@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Novalare Extraction API</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            width: 100%;
+            cursor: pointer;
+        }
+        button {
+            background: #0066ff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: 600;
+        }
+        button:hover {
+            background: #0052cc;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.success {
+            background: #e6f7e6;
+            border: 1px solid #4caf50;
+            display: block;
+        }
+        .result.error {
+            background: #ffe6e6;
+            border: 1px solid #f44336;
+            display: block;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat {
+            text-align: center;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0066ff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading.active {
+            display: block;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0066ff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Extraction API</h1>
+        <p class="subtitle">Upload a bank statement PDF to test the extraction</p>
+
+        <div class="form-group">
+            <label for="apiUrl">API URL</label>
+            <input type="text" id="apiUrl" placeholder="https://your-api.onrender.com" value="http://localhost:8000">
+        </div>
+
+        <div class="form-group">
+            <label for="pdfFile">Bank Statement PDF</label>
+            <input type="file" id="pdfFile" accept=".pdf">
+        </div>
+
+        <button onclick="testExtraction()">Extract Transactions</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Extracting transactions...</p>
+        </div>
+
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        async function testExtraction() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const fileInput = document.getElementById('pdfFile');
+            const resultDiv = document.getElementById('result');
+            const loadingDiv = document.getElementById('loading');
+
+            // Validation
+            if (!apiUrl) {
+                alert('Please enter the API URL');
+                return;
+            }
+            if (!fileInput.files.length) {
+                alert('Please select a PDF file');
+                return;
+            }
+
+            // Show loading
+            loadingDiv.classList.add('active');
+            resultDiv.style.display = 'none';
+
+            try {
+                // Create form data
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                // Make request
+                const startTime = Date.now();
+                const response = await fetch(`${apiUrl}/extract`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                const data = await response.json();
+
+                // Hide loading
+                loadingDiv.classList.remove('active');
+
+                if (data.success) {
+                    // Show success result
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <h3>✅ Extraction Successful!</h3>
+                        
+                        <div class="stats">
+                            <div class="stat">
+                                <div class="stat-value">${data.count}</div>
+                                <div class="stat-label">Transactions</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${duration}s</div>
+                                <div class="stat-label">Duration</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">$${data.summary.net_change.toFixed(2)}</div>
+                                <div class="stat-label">Net Change</div>
+                            </div>
+                        </div>
+
+                        <h4>Summary</h4>
+                        <ul>
+                            <li><strong>Total Debits:</strong> $${data.summary.total_debits.toFixed(2)}</li>
+                            <li><strong>Total Credits:</strong> $${data.summary.total_credits.toFixed(2)}</li>
+                        </ul>
+
+                        <h4>First 10 Transactions</h4>
+                        <pre>${JSON.stringify(data.transactions.slice(0, 10), null, 2)}</pre>
+
+                        <h4>Full Response</h4>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    // Show error
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+                        <h3>❌ Extraction Failed</h3>
+                        <p><strong>Error:</strong> ${data.error}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                // Hide loading
+                loadingDiv.classList.remove('active');
+
+                // Show error
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Request Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <p>Make sure the API is running and the URL is correct.</p>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

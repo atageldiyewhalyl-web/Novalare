@@ -1,14 +1,32 @@
-import { useState, useEffect } from 'react';
-import { Building, Settings, Archive, FileText, TrendingUp, Landmark, Users, Calendar, Upload, CheckCircle2, Circle, Download, ExternalLink, Trash2, Mail, BookOpen, CreditCard, Receipt } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEffect, useState, lazy, Suspense } from 'react';
+import { 
+  ArrowLeft, 
+  Building, 
+  Mail, 
+  FileText, 
+  DollarSign, 
+  Download, 
+  Layers, 
+  Upload, 
+  Plus, 
+  Receipt as ReceiptIcon,
+  Landmark,
+  Users,
+  CreditCard,
+  Calendar,
+  Archive,
+  Trash2,
+  TrendingUp,
+  ExternalLink,
+  CheckCircle2,
+  Circle,
+  Loader2
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { companiesApi, documentsApi, activitiesApi, metricsApi, emailsApi, invoicesApi, receiptsApi, Company, Document, Activity, CompanyMetrics, Email, Invoice, Receipt as ReceiptType } from '@/utils/api-client';
-import { toast } from 'sonner';
-import { EmailInbox } from './EmailInbox';
-import { ChartOfAccountsManager } from './ChartOfAccountsManager';
-import {
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { 
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -18,6 +36,45 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { 
+  companiesApi, 
+  Company, 
+  invoicesApi,
+  receiptsApi,
+  Invoice,
+  Receipt,
+  emailsApi
+} from '@/utils/api-client';
+import { useTheme } from '@/contexts/ThemeContext';
+import { CompanyWorkspaceSkeleton } from '../CompanyWorkspaceSkeleton';
+import { toast } from 'sonner@2.0.3';
+import { useQueryClient } from '@tanstack/react-query';
+
+// Lazy load tab components for better performance
+const InvoiceList = lazy(() =>
+  import('./InvoiceList').then((m) => ({ default: m.InvoiceList }))
+);
+const ReceiptsList = lazy(() =>
+  import('./ReceiptsList').then((m) => ({ default: m.ReceiptsList }))
+);
+const EmailInbox = lazy(() =>
+  import('./EmailInbox').then((m) => ({ default: m.EmailInbox }))
+);
+const ChartOfAccountsManager = lazy(() =>
+  import('./ChartOfAccountsManager').then((m) => ({ default: m.ChartOfAccountsManager }))
+);
+
+// Loading component for tab content
+function TabLoader() {
+  return (
+    <div className="flex items-center justify-center h-[400px]">
+      <div className="text-center">
+        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" />
+        <p className="text-gray-400">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 interface CompanyWorkspaceProps {
   companyId: string;
@@ -28,16 +85,17 @@ interface CompanyWorkspaceProps {
 export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActiveTab }: CompanyWorkspaceProps) {
   const [activeTab, setActiveTab] = useState(initialActiveTab || 'overview');
   const [company, setCompany] = useState<Company | null>(null);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [metrics, setMetrics] = useState<CompanyMetrics | null>(null);
-  const [emails, setEmails] = useState<Email[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [receipts, setReceipts] = useState<ReceiptType[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [emails, setEmails] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { theme } = useTheme();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     loadData();
@@ -53,22 +111,18 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
     try {
       setLoading(true);
       setError(null);
-      const [companyData, documentsData, activitiesData, metricsData, emailsData, invoicesData, receiptsData] = await Promise.all([
+      const [companyData, invoicesData, receiptsData] = await Promise.all([
         companiesApi.getById(companyId),
-        documentsApi.getByCompany(companyId),
-        activitiesApi.getByCompany(companyId),
-        metricsApi.getCompany(companyId),
-        emailsApi.getByCompany(companyId),
         invoicesApi.getByCompany(companyId),
         receiptsApi.getByCompany(companyId),
       ]);
       setCompany(companyData);
-      setDocuments(documentsData);
-      setActivities(activitiesData);
-      setMetrics(metricsData);
-      setEmails(emailsData);
       setInvoices(invoicesData);
       setReceipts(receiptsData);
+      // Documents, emails, and metrics are not loaded for now
+      setDocuments([]);
+      setEmails([]);
+      setMetrics(null);
     } catch (err) {
       console.error('Failed to load company data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -142,6 +196,10 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
     setIsDeleting(true);
     try {
       await companiesApi.delete(company.id);
+      
+      // Invalidate companies cache to trigger refetch
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      
       toast.success(`${company.name} has been deleted`);
       onNavigate('companies'); // Navigate back to companies list
     } catch (err) {
@@ -154,14 +212,7 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading company...</p>
-        </div>
-      </div>
-    );
+    return <CompanyWorkspaceSkeleton />;
   }
 
   if (error || !company) {
@@ -364,14 +415,14 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
                   <div className="space-y-3">
                     {sortedItems.map((item) => (
                       <div key={item.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                        <div className={item.type === 'invoice' 
-                          ? 'size-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0'
-                          : 'size-10 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0'
+                        <div className={theme === 'premium-dark' 
+                          ? "size-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0"
+                          : "size-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0"
                         }>
                           {item.type === 'invoice' ? (
                             <FileText className="size-5 text-blue-600" />
                           ) : (
-                            <Receipt className="size-5 text-green-600" />
+                            <ReceiptIcon className="size-5 text-green-600" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -628,12 +679,14 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
 
         {/* Email Inbox Tab */}
         <TabsContent value="emails" className="mt-6">
-          <EmailInbox
-            emails={emails}
-            companyId={companyId}
-            companyEmail={company?.email}
-            onSendEmail={handleSendEmail}
-          />
+          <Suspense fallback={<TabLoader />}>
+            <EmailInbox
+              emails={emails}
+              companyId={companyId}
+              companyEmail={company?.email}
+              onSendEmail={handleSendEmail}
+            />
+          </Suspense>
         </TabsContent>
 
         {/* Workflows Tab */}
@@ -684,10 +737,12 @@ export function CompanyWorkspace({ companyId, onNavigate, activeTab: initialActi
 
         {/* Chart of Accounts Tab */}
         <TabsContent value="coa" className="mt-6">
-          <ChartOfAccountsManager 
-            companyId={companyId}
-            companyName={company.name}
-          />
+          <Suspense fallback={<TabLoader />}>
+            <ChartOfAccountsManager 
+              companyId={companyId}
+              companyName={company.name}
+            />
+          </Suspense>
         </TabsContent>
 
         {/* Close Checklist Tab */}
